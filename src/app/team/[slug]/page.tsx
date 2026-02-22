@@ -1,5 +1,6 @@
 import { getDB } from "@/lib/db";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { TeamSchedule } from "@/components/team-schedule";
 
 interface LeagueMatch {
@@ -85,9 +86,9 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
             {roster.map((p: TeamMember) => (
               <div key={p.player_id} className="flex items-center justify-between px-4 py-2.5">
                 <div className="flex items-center gap-2">
-                  <a href={`/player/${p.player_id}`} className="font-medium text-primary-light hover:underline">
+                  <Link href={`/player/${p.player_id}`} className="font-medium text-primary-light hover:underline">
                     {p.name}
-                  </a>
+                  </Link>
                   {p.role === "captain" && (
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-primary/10 text-primary">
                       Captain
@@ -101,7 +102,7 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
         </div>
       </section>
 
-      <TeamSchedule matches={matches} isReadOnly={isReadOnly} />
+      <TeamSchedule matches={matches} isReadOnly={isReadOnly} slug={slug} />
     </div>
   );
 }

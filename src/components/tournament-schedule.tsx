@@ -34,7 +34,6 @@ function formatScore(s1: string | null, s2: string | null, winnerId: string | nu
   const sets1 = parseScore(s1);
   const sets2 = parseScore(s2);
   if (sets1.length === 0) return "";
-
   const isP1Winner = winnerId === p1Id;
   return sets1.map((g, i) => {
     const a = isP1Winner ? g : sets2[i];
@@ -51,17 +50,131 @@ function getMatchStatus(m: TournamentMatch): "completed" | "needs-score" | "upco
   return "upcoming";
 }
 
-export function TournamentSchedule({ matches }: { matches: TournamentMatch[] }) {
+function ScoreEntryForm({ match, slug, onClose }: { match: TournamentMatch; slug: string; onClose: () => void }) {
+  const [sets, setSets] = useState([
+    { p1: "", p2: "" },
+    { p1: "", p2: "" },
+    { p1: "", p2: "" },
+  ]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit() {
+    setError("");
+    const score1: number[] = [];
+    const score2: number[] = [];
+    let p1SetsWon = 0, p2SetsWon = 0;
+
+    for (const set of sets) {
+      if (set.p1 === "" && set.p2 === "") continue;
+      const s1 = parseInt(set.p1), s2 = parseInt(set.p2);
+      if (isNaN(s1) || isNaN(s2) || s1 < 0 || s2 < 0) {
+        setError("Invalid score values");
+        return;
+      }
+      score1.push(s1);
+      score2.push(s2);
+      if (s1 > s2) p1SetsWon++;
+      else if (s2 > s1) p2SetsWon++;
+    }
+
+    if (score1.length < 2) {
+      setError("Enter at least 2 sets");
+      return;
+    }
+
+    const winnerId = p1SetsWon > p2SetsWon ? match.participant1_id : match.participant2_id;
+
+    setSubmitting(true);
+    const res = await fetch(`/api/tournament/${slug}/score`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        matchId: match.id,
+        score1Sets: score1,
+        score2Sets: score2,
+        winnerId,
+      }),
+    });
+
+    if (!res.ok) {
+      const data = (await res.json()) as { error?: string };
+      setError(data.error || "Failed to submit score");
+      setSubmitting(false);
+      return;
+    }
+
+    window.location.reload();
+  }
+
+  return (
+    <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-800/80 rounded-lg border border-border">
+      <p className="text-xs font-semibold mb-2 text-slate-600 dark:text-slate-300">Enter Score</p>
+      <div className="space-y-2">
+        {sets.map((set, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="text-[10px] text-slate-400 w-6">S{i + 1}</span>
+            <input
+              type="number"
+              min="0"
+              max="13"
+              placeholder="0"
+              value={set.p1}
+              onChange={(e) => {
+                const next = [...sets];
+                next[i] = { ...next[i], p1: e.target.value };
+                setSets(next);
+              }}
+              className="w-14 h-10 text-center rounded-lg border border-border bg-white dark:bg-slate-900 text-lg font-bold"
+            />
+            <span className="text-slate-400 text-xs">-</span>
+            <input
+              type="number"
+              min="0"
+              max="13"
+              placeholder="0"
+              value={set.p2}
+              onChange={(e) => {
+                const next = [...sets];
+                next[i] = { ...next[i], p2: e.target.value };
+                setSets(next);
+              }}
+              className="w-14 h-10 text-center rounded-lg border border-border bg-white dark:bg-slate-900 text-lg font-bold"
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between mt-2 text-xs text-slate-400">
+        <span>{match.p1_name} — {match.p2_name}</span>
+      </div>
+      {error && <p className="text-xs text-danger mt-2">{error}</p>}
+      <div className="flex gap-2 mt-3">
+        <button
+          onClick={handleSubmit}
+          disabled={submitting}
+          className="flex-1 py-2 rounded-lg bg-primary text-white font-semibold text-sm disabled:opacity-50"
+        >
+          {submitting ? "Saving..." : "Submit Score"}
+        </button>
+        <button
+          onClick={onClose}
+          className="px-4 py-2 rounded-lg border border-border text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function TournamentSchedule({ matches, slug }: { matches: TournamentMatch[]; slug?: string }) {
   const [filter, setFilter] = useState<Filter>("all");
+  const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
 
   const filtered = matches.filter((m) => {
     if (m.bye) return false;
     if (filter === "all") return true;
-    const status = getMatchStatus(m);
-    if (filter === "completed") return status === "completed";
-    if (filter === "upcoming") return status === "upcoming";
-    if (filter === "needs-score") return status === "needs-score";
-    return true;
+    return getMatchStatus(m) === filter;
   });
 
   const grouped = filtered.reduce<Record<number, TournamentMatch[]>>((acc, m) => {
@@ -110,10 +223,14 @@ export function TournamentSchedule({ matches }: { matches: TournamentMatch[] }) 
                   const status = getMatchStatus(m);
                   const winner = m.winner_participant_id;
                   const score = formatScore(m.score1_sets, m.score2_sets, winner, m.participant1_id);
+                  const canEnterScore = status === "needs-score" || (status === "completed" && slug);
 
                   return (
                     <div key={m.id} className="px-4 py-3">
-                      <div className="flex items-center justify-between gap-2">
+                      <div
+                        className={`flex items-center justify-between gap-2 ${canEnterScore ? "cursor-pointer" : ""}`}
+                        onClick={() => canEnterScore && slug ? setEditingMatchId(editingMatchId === m.id ? null : m.id) : undefined}
+                      >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className={`font-medium ${winner === m.participant1_id ? "text-accent font-bold" : ""}`}>
@@ -124,9 +241,7 @@ export function TournamentSchedule({ matches }: { matches: TournamentMatch[] }) 
                               {m.p2_name}
                             </span>
                           </div>
-                          {score && (
-                            <p className="text-xs text-slate-500 mt-0.5">{score}</p>
-                          )}
+                          {score && <p className="text-xs text-slate-500 mt-0.5">{score}</p>}
                         </div>
                         <div className="text-right shrink-0">
                           <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
@@ -144,6 +259,13 @@ export function TournamentSchedule({ matches }: { matches: TournamentMatch[] }) 
                           </p>
                         </div>
                       </div>
+                      {editingMatchId === m.id && slug && (
+                        <ScoreEntryForm
+                          match={m}
+                          slug={slug}
+                          onClose={() => setEditingMatchId(null)}
+                        />
+                      )}
                     </div>
                   );
                 })}

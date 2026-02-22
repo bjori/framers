@@ -1,33 +1,52 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-const teams = [
-  { name: "Senior Framers 40+", slug: "senior-framers-2026", status: "active" as const },
-  { name: "Junior Framers 18+", slug: "junior-framers-2026", status: "upcoming" as const },
-];
+interface NavData {
+  teams: { name: string; slug: string; status: string }[];
+  tournaments: { name: string; slug: string; status: string }[];
+  history: { name: string; slug: string; kind: string }[];
+}
 
-const tournaments = [
-  { name: "Singles Championship", slug: "singles-championship-2026", status: "active" as const },
-];
+interface User {
+  player_id: string;
+  name: string;
+  email: string;
+  is_admin: number;
+}
 
-const history = [
-  { name: "The Framers 40+ (2025)", slug: "the-framers-2025" },
-  { name: "Youth Framers 18+ (2025)", slug: "youth-framers-2025" },
-];
-
-function StatusDot({ status }: { status: "active" | "completed" | "upcoming" }) {
-  const colors = {
+function StatusDot({ status }: { status: string }) {
+  const colors: Record<string, string> = {
     active: "bg-accent",
     completed: "bg-slate-400",
     upcoming: "bg-warning",
   };
-  return <span className={`inline-block w-2 h-2 rounded-full ${colors[status]}`} />;
+  return <span className={`inline-block w-2 h-2 rounded-full ${colors[status] ?? "bg-slate-400"}`} />;
 }
 
 export function Nav() {
   const [open, setOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [nav, setNav] = useState<NavData | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? (r.json() as Promise<{ user: User | null }>) : null))
+      .then((d) => setUser(d?.user ?? null))
+      .catch(() => {});
+    fetch("/api/nav")
+      .then((r) => r.json() as Promise<NavData>)
+      .then((d) => setNav(d))
+      .catch(() => {});
+  }, []);
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setUser(null);
+    setOpen(false);
+    window.location.href = "/login";
+  }
 
   return (
     <header className="bg-primary text-white sticky top-0 z-50">
@@ -38,6 +57,9 @@ export function Nav() {
           </Link>
 
           <div className="flex items-center gap-3">
+            {user && (
+              <span className="text-xs text-white/70 hidden sm:inline">{user.name}</span>
+            )}
             <button
               onClick={() => setOpen(!open)}
               className="p-2 rounded-lg hover:bg-white/10 transition-colors"
@@ -58,56 +80,62 @@ export function Nav() {
       {open && (
         <div className="border-t border-white/20 bg-primary-dark">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 space-y-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-white/60 mb-2">USTA Teams</p>
-              <div className="space-y-1">
-                {teams.map((t) => (
-                  <Link
-                    key={t.slug}
-                    href={`/team/${t.slug}`}
-                    onClick={() => setOpen(false)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-                  >
-                    <StatusDot status={t.status} />
-                    <span>{t.name}</span>
-                  </Link>
-                ))}
+            {nav && nav.teams.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-white/60 mb-2">USTA Teams</p>
+                <div className="space-y-1">
+                  {nav.teams.map((t) => (
+                    <Link
+                      key={t.slug}
+                      href={`/team/${t.slug}`}
+                      onClick={() => setOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+                    >
+                      <StatusDot status={t.status} />
+                      <span>{t.name}</span>
+                    </Link>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-white/60 mb-2">Tournaments</p>
-              <div className="space-y-1">
-                {tournaments.map((t) => (
-                  <Link
-                    key={t.slug}
-                    href={`/tournament/${t.slug}`}
-                    onClick={() => setOpen(false)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-                  >
-                    <StatusDot status={t.status} />
-                    <span>{t.name}</span>
-                  </Link>
-                ))}
+            {nav && nav.tournaments.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-white/60 mb-2">Tournaments</p>
+                <div className="space-y-1">
+                  {nav.tournaments.map((t) => (
+                    <Link
+                      key={t.slug}
+                      href={`/tournament/${t.slug}`}
+                      onClick={() => setOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+                    >
+                      <StatusDot status={t.status} />
+                      <span>{t.name}</span>
+                    </Link>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-white/60 mb-2">History</p>
-              <div className="space-y-1">
-                {history.map((t) => (
-                  <Link
-                    key={t.slug}
-                    href={`/team/${t.slug}`}
-                    onClick={() => setOpen(false)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-                  >
-                    <StatusDot status="completed" />
-                    <span>{t.name}</span>
-                  </Link>
-                ))}
+            {nav && nav.history.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-white/60 mb-2">History</p>
+                <div className="space-y-1">
+                  {nav.history.map((t) => (
+                    <Link
+                      key={t.slug}
+                      href={`/${t.kind === "tournament" ? "tournament" : "team"}/${t.slug}`}
+                      onClick={() => setOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+                    >
+                      <StatusDot status="completed" />
+                      <span>{t.name}</span>
+                    </Link>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="border-t border-white/20 pt-3 space-y-1">
               <Link
@@ -117,27 +145,31 @@ export function Nav() {
               >
                 My Dashboard
               </Link>
-              <Link
-                href="/settings"
-                onClick={() => setOpen(false)}
-                className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-              >
-                Settings
-              </Link>
-              <Link
-                href="/admin"
-                onClick={() => setOpen(false)}
-                className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-              >
-                Admin
-              </Link>
-              <Link
-                href="/login"
-                onClick={() => setOpen(false)}
-                className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-              >
-                Login
-              </Link>
+              {user?.is_admin === 1 && (
+                <Link
+                  href="/admin"
+                  onClick={() => setOpen(false)}
+                  className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+                >
+                  Admin
+                </Link>
+              )}
+              {user ? (
+                <button
+                  onClick={handleLogout}
+                  className="block w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 transition-colors text-white/80"
+                >
+                  Sign Out ({user.name})
+                </button>
+              ) : (
+                <Link
+                  href="/login"
+                  onClick={() => setOpen(false)}
+                  className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+                >
+                  Login
+                </Link>
+              )}
             </div>
           </div>
         </div>

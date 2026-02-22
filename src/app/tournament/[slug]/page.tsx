@@ -156,7 +156,7 @@ export default async function TournamentPage({ params }: { params: Promise<{ slu
       </div>
 
       <TournamentStandings standings={standings} />
-      <TournamentSchedule matches={matches} />
+      <TournamentSchedule matches={matches} slug={slug} />
     </div>
   );
 }

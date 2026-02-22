@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { getSession } from "@/lib/auth";
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, phone TEXT, password_hash TEXT, ntrp_rating REAL, ntrp_type TEXT, singles_elo INTEGER NOT NULL DEFAULT 1500, doubles_elo INTEGER NOT NULL DEFAULT 1500, avatar_url TEXT, ics_token TEXT UNIQUE, reliability_score REAL NOT NULL DEFAULT 1.0, is_admin INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')))`,
@@ -20,20 +21,21 @@ const SCHEMA_STATEMENTS = [
 ];
 
 export async function GET() {
+  const session = await getSession();
+  // Allow unauthenticated only if no players exist yet (initial setup)
+  if (session && session.is_admin !== 1) {
+    return NextResponse.json({ error: "Admin only" }, { status: 403 });
+  }
+
   try {
     const { env } = await getCloudflareContext({ async: true });
     const db = env.DB;
-
-    // Create tables
     await db.batch(SCHEMA_STATEMENTS.map((s) => db.prepare(s)));
-
-    // Check tables
     const tables = await db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all();
-
     return NextResponse.json({ ok: true, tables: tables.results });
   } catch (err) {
-    return NextResponse.json({ error: String(err), stack: err instanceof Error ? err.stack : undefined }, { status: 500 });
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
