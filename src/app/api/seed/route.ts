@@ -12,30 +12,35 @@ export async function GET() {
       return NextResponse.json({ ok: true, message: "Already seeded", players: existing.cnt });
     }
 
-    // Batch 1: Players
+    // Batch 1: Players (with real emails, phones, and 2026 USTA ratings)
+    const pInsert = "INSERT INTO players (id,name,email,phone,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?,?)";
     await db.batch([
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("624ef626-b13a-47c9-b23b-6fa96c237f47","Brad Allen","brad.allen@framers.app",3.0,"3.0A",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("5c591f7a-9f54-4e86-a507-787d2770f028","Dan Lopez","dan.lopez@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("8dbc87ab-f415-40ee-9fed-e7857445f998","Hannes Magnusson","hannes.magnusson@gmail.com",3.0,"3.0S",1),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("92e1a868-573c-487e-93c6-3f84488a222c","Joe Moss","joe.moss@framers.app",2.5,"2.5A",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("ad74e6ea-ffcc-419f-8c15-3dcdf366d490","Joel Zdarko","joel.zdarko@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("acd5a9ec-d224-466a-a6d1-7b9b28aa961b","Kirk Martinez","kirk.martinez@framers.app",2.5,"2.5S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("5a61d2ac-cd7c-4f10-8716-f3fc6f3351fa","Matthew McCabe","matt.mccabe@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("e200b62b-e557-47ba-98e8-1dca23d23e0e","Shimon Modi","shimon.modi@framers.app",2.5,"2.5S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("bbbf95a3-2773-4035-8b20-99354ab33a0d","Sri Vemuri","sri.vemuri@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("269a7039-5e49-47b3-a621-d4c40f3f40b5","Travis Gilkey","travis.gilkey@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("eb9d8bcb-ad69-43fc-87c2-d7024060185a","Tristan Pereida-Rice","tristan.pr@framers.app",2.5,"2.5C",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("a1b2c3d4-1111-4000-8000-000000000001","Juan Garrahan","juan.garrahan@framers.app",3.0,"3.0C",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("a1b2c3d4-1111-4000-8000-000000000002","Guy Hocker","guy.hocker@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("a1b2c3d4-1111-4000-8000-000000000003","Kelly Lynch","kelly.lynch@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("a1b2c3d4-1111-4000-8000-000000000004","Jeff Moran","jeff.moran@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("a1b2c3d4-1111-4000-8000-000000000005","Bhaven Shah","bhaven.shah@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("a1b2c3d4-1111-4000-8000-000000000006","Jeff Turner","jeff.turner@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("a1b2c3d4-2222-4000-8000-000000000001","Sandeep Brahmarouthu","sandeep.b@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("a1b2c3d4-2222-4000-8000-000000000002","Tim Gilliss","tim.gilliss@framers.app",2.5,"2.5S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("a1b2c3d4-2222-4000-8000-000000000003","Kirill Mazin","kirill.mazin@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("a1b2c3d4-2222-4000-8000-000000000004","Aaron Kaplan","aaron.kaplan@framers.app",3.0,"3.0C",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("a1b2c3d4-2222-4000-8000-000000000005","Tom Schroder","tom.schroder@framers.app",2.5,"2.5S",0),
+      db.prepare(pInsert).bind("624ef626-b13a-47c9-b23b-6fa96c237f47","Brad Allen","ballen636@gmail.com","949-637-0773",3.0,"3.0A",0),
+      db.prepare(pInsert).bind("5c591f7a-9f54-4e86-a507-787d2770f028","Dan Lopez","lopezdc67@yahoo.com","925-207-3498",3.0,"3.0C",0),
+      db.prepare(pInsert).bind("8dbc87ab-f415-40ee-9fed-e7857445f998","Hannes Magnusson","hannes.magnusson@gmail.com","650-666-9246",3.0,"3.0C",1),
+      db.prepare(pInsert).bind("92e1a868-573c-487e-93c6-3f84488a222c","Joe Moss","joegmoss@hotmail.com","510-282-8250",2.5,"2.5A",0),
+      db.prepare(pInsert).bind("ad74e6ea-ffcc-419f-8c15-3dcdf366d490","Joel Zdarko","jzdarko@gmail.com","805-234-4899",3.0,"3.0C",0),
+      db.prepare(pInsert).bind("acd5a9ec-d224-466a-a6d1-7b9b28aa961b","Kirk Martinez","kirk.martinez@gmail.com","925-314-5089",2.5,"2.5S",0),
+      db.prepare(pInsert).bind("5a61d2ac-cd7c-4f10-8716-f3fc6f3351fa","Matthew McCabe","mccabe83@gmail.com","661-433-3731",3.0,"3.0C",0),
+      db.prepare(pInsert).bind("e200b62b-e557-47ba-98e8-1dca23d23e0e","Shimon Modi","shimonmodi@gmail.com","765-409-6634",3.0,"3.0C",0),
+      db.prepare(pInsert).bind("bbbf95a3-2773-4035-8b20-99354ab33a0d","Sri Vemuri","srivemuri3@gmail.com","510-338-8768",3.0,"3.0C",0),
+      db.prepare(pInsert).bind("269a7039-5e49-47b3-a621-d4c40f3f40b5","Travis Gilkey","travisgilkey@gmail.com","925-787-2196",3.0,"3.0C",0),
+      db.prepare(pInsert).bind("eb9d8bcb-ad69-43fc-87c2-d7024060185a","Tristan Pereida-Rice","tristanpr@gmail.com","310-749-5634",2.5,"2.5C",0),
+      db.prepare(pInsert).bind("a1b2c3d4-1111-4000-8000-000000000001","Juan Garrahan","juangarrahan@comcast.net","925-381-1652",3.0,"3.0C",0),
+      db.prepare(pInsert).bind("a1b2c3d4-1111-4000-8000-000000000002","Guy Hocker","guyhocker@gmail.com","310-809-1403",3.0,"3.0S",0),
+      db.prepare(pInsert).bind("a1b2c3d4-1111-4000-8000-000000000003","Kelly Lynch","kelly@westernstatestool.com","510-714-6117",3.0,"3.0C",0),
+      db.prepare(pInsert).bind("a1b2c3d4-1111-4000-8000-000000000004","Jeff Moran","jeffreykmoran@gmail.com","925-708-1826",3.0,"3.0C",0),
+      db.prepare(pInsert).bind("a1b2c3d4-1111-4000-8000-000000000005","Bhaven Shah","bravebhaven@gmail.com","650-305-6380",3.0,"3.0C",0),
+      db.prepare(pInsert).bind("a1b2c3d4-1111-4000-8000-000000000006","Jeff Turner","jmmmat@sbcglobal.net","510-520-1515",3.0,"3.0C",0),
+      db.prepare(pInsert).bind("a1b2c3d4-3333-4000-8000-000000000001","Stefano Mazzoni","stefanoheidi@gmail.com",null,3.0,"3.0S",0),
+      db.prepare(pInsert).bind("a1b2c3d4-3333-4000-8000-000000000002","Jun Alarcon","alarconjun@yahoo.com",null,3.0,"3.0S",0),
+      db.prepare(pInsert).bind("a1b2c3d4-2222-4000-8000-000000000001","Sandeep Brahmarouthu","unknown+sandeep.b@framers.app",null,3.0,"3.0S",0),
+    ]);
+    await db.batch([
+      db.prepare(pInsert).bind("a1b2c3d4-2222-4000-8000-000000000002","Tim Gilliss","unknown+tim.gilliss@framers.app",null,2.5,"2.5S",0),
+      db.prepare(pInsert).bind("a1b2c3d4-2222-4000-8000-000000000003","Kirill Mazin","unknown+kirill.mazin@framers.app",null,3.0,"3.0S",0),
+      db.prepare(pInsert).bind("a1b2c3d4-2222-4000-8000-000000000004","Aaron Kaplan","unknown+aaron.kaplan@framers.app",null,3.0,"3.0C",0),
+      db.prepare(pInsert).bind("a1b2c3d4-2222-4000-8000-000000000005","Tom Schroder","unknown+tom.schroder@framers.app",null,2.5,"2.5S",0),
     ]);
 
     // Batch 2: Teams + Tournament
