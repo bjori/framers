@@ -11,6 +11,7 @@ interface Standing {
   setsLost: number;
   gamesWon: number;
   gamesLost: number;
+  elo: number;
 }
 
 export function TournamentStandings({ standings }: { standings: Standing[] }) {
@@ -28,6 +29,7 @@ export function TournamentStandings({ standings }: { standings: Standing[] }) {
                 <th className="text-center py-2.5 px-3 font-semibold">L</th>
                 <th className="text-center py-2.5 px-3 font-semibold hidden sm:table-cell">Sets</th>
                 <th className="text-center py-2.5 px-3 font-semibold hidden sm:table-cell">Games</th>
+                <th className="text-center py-2.5 px-3 font-semibold">ELO</th>
               </tr>
             </thead>
             <tbody>
@@ -43,6 +45,7 @@ export function TournamentStandings({ standings }: { standings: Standing[] }) {
                   <td className="py-2.5 px-3 text-center text-slate-500">{s.losses}</td>
                   <td className="py-2.5 px-3 text-center hidden sm:table-cell">{s.setsWon}-{s.setsLost}</td>
                   <td className="py-2.5 px-3 text-center hidden sm:table-cell">{s.gamesWon}-{s.gamesLost}</td>
+                  <td className="py-2.5 px-3 text-center text-xs font-semibold">{s.elo}</td>
                 </tr>
               ))}
             </tbody>

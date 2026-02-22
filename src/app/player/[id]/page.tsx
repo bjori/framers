@@ -106,6 +106,15 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
       .all<{ type: string; old_elo: number; new_elo: number; delta: number; source: string; created_at: string }>()
   ).results;
 
+  const recentSinglesDelta = eloHistory
+    .filter((e) => e.type === "singles")
+    .slice(0, 5)
+    .reduce((sum, e) => sum + e.delta, 0);
+  const recentDoublesDelta = eloHistory
+    .filter((e) => e.type === "doubles")
+    .slice(0, 5)
+    .reduce((sum, e) => sum + e.delta, 0);
+
   return (
     <div className="space-y-6">
       <div>
@@ -121,10 +130,20 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
         <div className="bg-surface-alt rounded-xl border border-border p-4 text-center">
           <p className="text-xs uppercase font-semibold text-slate-500 mb-1">Singles ELO</p>
           <p className="text-3xl font-bold">{player.singles_elo}</p>
+          {recentSinglesDelta !== 0 && (
+            <p className={`text-sm font-semibold mt-1 ${recentSinglesDelta > 0 ? "text-accent" : "text-danger"}`}>
+              {recentSinglesDelta > 0 ? "\u25B2" : "\u25BC"} {recentSinglesDelta > 0 ? "+" : ""}{recentSinglesDelta}
+            </p>
+          )}
         </div>
         <div className="bg-surface-alt rounded-xl border border-border p-4 text-center">
           <p className="text-xs uppercase font-semibold text-slate-500 mb-1">Doubles ELO</p>
           <p className="text-3xl font-bold">{player.doubles_elo}</p>
+          {recentDoublesDelta !== 0 && (
+            <p className={`text-sm font-semibold mt-1 ${recentDoublesDelta > 0 ? "text-accent" : "text-danger"}`}>
+              {recentDoublesDelta > 0 ? "\u25B2" : "\u25BC"} {recentDoublesDelta > 0 ? "+" : ""}{recentDoublesDelta}
+            </p>
+          )}
         </div>
       </div>
 

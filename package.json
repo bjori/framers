@@ -14,6 +14,7 @@
     "db:migrate:local": "wrangler d1 execute framers-v2 --local --file=./src/lib/schema.sql"
   },
   "dependencies": {
+    "ical-generator": "^10.0.0",
     "next": "^15.5.12",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

@@ -2,6 +2,7 @@ import { getDB } from "@/lib/db";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { TeamSchedule } from "@/components/team-schedule";
+import AvailabilityGrid from "@/components/availability-grid";
 
 interface LeagueMatch {
   id: string;
@@ -60,8 +61,22 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
 
   const format = JSON.parse(team.match_format || "{}");
   const totalLines = (format.singles || 0) + (format.doubles || 0);
-  const record = matches.filter((m: LeagueMatch) => m.team_result === "Won").length + "-" + matches.filter((m: LeagueMatch) => m.team_result === "Lost").length;
+  const wins = matches.filter((m: LeagueMatch) => m.team_result === "win").length;
+  const losses = matches.filter((m: LeagueMatch) => m.team_result === "loss").length;
+  const record = `${wins}-${losses}`;
   const isReadOnly = team.status === "completed";
+
+  const availability = (
+    await db
+      .prepare(
+        `SELECT a.player_id, p.name as player_name, a.match_id, a.status
+         FROM availability a
+         JOIN players p ON p.id = a.player_id
+         WHERE a.match_id IN (SELECT id FROM league_matches WHERE team_id = ?)`
+      )
+      .bind(team.id)
+      .all<{ player_id: string; player_name: string; match_id: string; status: string | null }>()
+  ).results;
 
   return (
     <div className="space-y-6">
@@ -101,6 +116,14 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
           </div>
         </div>
       </section>
+
+      {!isReadOnly && (
+        <AvailabilityGrid
+          roster={roster.map((p) => ({ player_id: p.player_id, name: p.name }))}
+          matches={matches.map((m) => ({ id: m.id, match_date: m.match_date, opponent_team: m.opponent_team }))}
+          availability={availability}
+        />
+      )}
 
       <TeamSchedule matches={matches} isReadOnly={isReadOnly} slug={slug} />
     </div>

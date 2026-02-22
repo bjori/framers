@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import CalendarSubscribe from "@/components/calendar-subscribe";
 
 export const dynamic = "force-dynamic";
 
@@ -144,6 +145,8 @@ export default async function DashboardPage() {
           </div>
         )}
       </section>
+
+      {session && <CalendarSubscribe />}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {tournaments.map((t) => (

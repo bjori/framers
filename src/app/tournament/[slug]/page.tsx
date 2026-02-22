@@ -35,6 +35,7 @@ interface Standing {
   setsLost: number;
   gamesWon: number;
   gamesLost: number;
+  elo: number;
 }
 
 function parseScore(s: string | null): number[] {
@@ -42,13 +43,14 @@ function parseScore(s: string | null): number[] {
   try { return JSON.parse(s); } catch { return []; }
 }
 
-function computeStandings(matches: TournamentMatch[], participants: { id: string; player_id: string; name: string }[]): Standing[] {
+function computeStandings(matches: TournamentMatch[], participants: { id: string; player_id: string; name: string; singles_elo: number }[]): Standing[] {
   const map = new Map<string, Standing>();
   for (const p of participants) {
     map.set(p.id, {
       participant_id: p.id,
       player_id: p.player_id,
       name: p.name,
+      elo: p.singles_elo,
       matches: 0, wins: 0, losses: 0,
       setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0,
     });
@@ -113,14 +115,14 @@ export default async function TournamentPage({ params }: { params: Promise<{ slu
   const participants = (
     await db
       .prepare(
-        `SELECT tp.id, tp.player_id, p.name
+        `SELECT tp.id, tp.player_id, p.name, p.singles_elo
          FROM tournament_participants tp
          JOIN players p ON p.id = tp.player_id
          WHERE tp.tournament_id = ?
          ORDER BY p.name`
       )
       .bind(tournament.id)
-      .all<{ id: string; player_id: string; name: string }>()
+      .all<{ id: string; player_id: string; name: string; singles_elo: number }>()
   ).results;
 
   const matches = (
