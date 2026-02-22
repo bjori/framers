@@ -1,9 +1,11 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-export function getDB() {
-  return (getCloudflareContext().env as CloudflareEnv).DB;
+export async function getDB() {
+  const { env } = await getCloudflareContext({ async: true });
+  return env.DB;
 }
 
-export function getKV() {
-  return (getCloudflareContext().env as CloudflareEnv).KV;
+export async function getKV() {
+  const { env } = await getCloudflareContext({ async: true });
+  return env.KV;
 }

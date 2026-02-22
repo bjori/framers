@@ -101,7 +101,7 @@ function computeStandings(matches: TournamentMatch[], participants: { id: string
 
 export default async function TournamentPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const db = getDB();
+  const db = await getDB();
 
   const tournament = await db
     .prepare("SELECT * FROM tournaments WHERE slug = ?")

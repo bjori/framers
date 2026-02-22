@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   const baseUrl = new URL(request.url).origin;
   const verifyUrl = `${baseUrl}/api/auth/verify?token=${token}`;
 
-  const env = getCloudflareContext().env as { RESEND_API_KEY?: string };
+  const { env } = await getCloudflareContext({ async: true });
   const resendKey = env.RESEND_API_KEY;
 
   if (resendKey) {

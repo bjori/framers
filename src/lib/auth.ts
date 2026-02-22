@@ -6,7 +6,7 @@ const SESSION_TTL = 60 * 60 * 24 * 30; // 30 days
 
 export async function createSession(playerId: string): Promise<string> {
   const token = crypto.randomUUID();
-  const db = getDB();
+  const db = await getDB();
   const expiresAt = new Date(Date.now() + SESSION_TTL * 1000).toISOString();
 
   await db
@@ -22,7 +22,7 @@ export async function getSession() {
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
-  const db = getDB();
+  const db = await getDB();
   const session = await db
     .prepare(
       `SELECT s.player_id, p.name, p.email, p.is_admin, p.ntrp_rating, p.ntrp_type
@@ -50,8 +50,8 @@ export function setSessionCookie(token: string) {
 }
 
 export async function generateMagicToken(email: string): Promise<string | null> {
-  const db = getDB();
-  const kv = getKV();
+  const db = await getDB();
+  const kv = await getKV();
 
   const player = await db
     .prepare("SELECT id FROM players WHERE email = ?")
@@ -61,13 +61,13 @@ export async function generateMagicToken(email: string): Promise<string | null> 
   if (!player) return null;
 
   const magicToken = crypto.randomUUID();
-  await kv.put(`magic:${magicToken}`, player.id, { expirationTtl: 600 }); // 10 min
+  await kv.put(`magic:${magicToken}`, player.id, { expirationTtl: 600 });
 
   return magicToken;
 }
 
 export async function verifyMagicToken(token: string): Promise<string | null> {
-  const kv = getKV();
+  const kv = await getKV();
   const playerId = await kv.get(`magic:${token}`);
   if (!playerId) return null;
 

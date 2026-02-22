@@ -25,7 +25,7 @@ interface TeamMember {
 
 export default async function TeamPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const db = getDB();
+  const db = await getDB();
 
   const team = await db
     .prepare("SELECT * FROM teams WHERE slug = ?")
