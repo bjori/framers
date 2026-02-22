@@ -1,0 +1,92 @@
+export const PLAYERS = [
+  // === Tournament + USTA 2026 40+ (11 players) ===
+  { id: "624ef626-b13a-47c9-b23b-6fa96c237f47", name: "Brad Allen", email: "brad.allen@framers.app", ntrp: 3.0, ntrp_type: "3.0A" },
+  { id: "5c591f7a-9f54-4e86-a507-787d2770f028", name: "Dan Lopez", email: "dan.lopez@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+  { id: "8dbc87ab-f415-40ee-9fed-e7857445f998", name: "Hannes Magnusson", email: "hannes@magnusson.is", ntrp: 3.0, ntrp_type: "3.0S", is_admin: 1 },
+  { id: "92e1a868-573c-487e-93c6-3f84488a222c", name: "Joe Moss", email: "joe.moss@framers.app", ntrp: 2.5, ntrp_type: "2.5A" },
+  { id: "ad74e6ea-ffcc-419f-8c15-3dcdf366d490", name: "Joel Zdarko", email: "joel.zdarko@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+  { id: "acd5a9ec-d224-466a-a6d1-7b9b28aa961b", name: "Kirk Martinez", email: "kirk.martinez@framers.app", ntrp: 2.5, ntrp_type: "2.5S" },
+  { id: "5a61d2ac-cd7c-4f10-8716-f3fc6f3351fa", name: "Matthew McCabe", email: "matt.mccabe@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+  { id: "e200b62b-e557-47ba-98e8-1dca23d23e0e", name: "Shimon Modi", email: "shimon.modi@framers.app", ntrp: 2.5, ntrp_type: "2.5S" },
+  { id: "bbbf95a3-2773-4035-8b20-99354ab33a0d", name: "Sri Vemuri", email: "sri.vemuri@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+  { id: "269a7039-5e49-47b3-a621-d4c40f3f40b5", name: "Travis Gilkey", email: "travis.gilkey@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+  { id: "eb9d8bcb-ad69-43fc-87c2-d7024060185a", name: "Tristan Pereida-Rice", email: "tristan.pr@framers.app", ntrp: 2.5, ntrp_type: "2.5C" },
+
+  // === USTA 2026 40+ only (6 players) ===
+  { id: "a1b2c3d4-1111-4000-8000-000000000001", name: "Juan Garrahan", email: "juan.garrahan@framers.app", ntrp: 3.0, ntrp_type: "3.0C" },
+  { id: "a1b2c3d4-1111-4000-8000-000000000002", name: "Guy Hocker", email: "guy.hocker@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+  { id: "a1b2c3d4-1111-4000-8000-000000000003", name: "Kelly Lynch", email: "kelly.lynch@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+  { id: "a1b2c3d4-1111-4000-8000-000000000004", name: "Jeff Moran", email: "jeff.moran@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+  { id: "a1b2c3d4-1111-4000-8000-000000000005", name: "Bhaven Shah", email: "bhaven.shah@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+  { id: "a1b2c3d4-1111-4000-8000-000000000006", name: "Jeff Turner", email: "jeff.turner@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+
+  // === Historical only (2025 seasons) ===
+  { id: "a1b2c3d4-2222-4000-8000-000000000001", name: "Sandeep Brahmarouthu", email: "sandeep.b@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+  { id: "a1b2c3d4-2222-4000-8000-000000000002", name: "Tim Gilliss", email: "tim.gilliss@framers.app", ntrp: 2.5, ntrp_type: "2.5S" },
+  { id: "a1b2c3d4-2222-4000-8000-000000000003", name: "Kirill Mazin", email: "kirill.mazin@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
+  { id: "a1b2c3d4-2222-4000-8000-000000000004", name: "Aaron Kaplan", email: "aaron.kaplan@framers.app", ntrp: 3.0, ntrp_type: "3.0C" },
+  { id: "a1b2c3d4-2222-4000-8000-000000000005", name: "Tom Schroder", email: "tom.schroder@framers.app", ntrp: 2.5, ntrp_type: "2.5S" },
+] as const;
+
+export const TEAMS = [
+  {
+    id: "team-senior-framers-2026",
+    name: "Senior Framers",
+    slug: "senior-framers-2026",
+    league: "USTA NorCal 40+ 3.0",
+    season_year: 2026,
+    season_start: "2026-01-09",
+    season_end: "2026-03-15",
+    match_format: '{"singles":1,"doubles":3}',
+    usta_team_id: "108477",
+    status: "active",
+  },
+  {
+    id: "team-junior-framers-2026",
+    name: "Junior Framers",
+    slug: "junior-framers-2026",
+    league: "USTA NorCal 18+ 3.0",
+    season_year: 2026,
+    season_start: "2026-04-07",
+    season_end: "2026-06-15",
+    match_format: '{"singles":2,"doubles":3}',
+    usta_team_id: "110060",
+    status: "upcoming",
+  },
+  {
+    id: "team-the-framers-2025",
+    name: "The Framers (2025)",
+    slug: "the-framers-2025",
+    league: "USTA NorCal 40+ 3.0",
+    season_year: 2025,
+    season_start: "2025-01-06",
+    season_end: "2025-03-16",
+    match_format: '{"singles":1,"doubles":3}',
+    usta_team_id: "104737",
+    status: "completed",
+  },
+  {
+    id: "team-youth-framers-2025",
+    name: "Youth Framers (2025)",
+    slug: "youth-framers-2025",
+    league: "USTA NorCal 18+ 3.0",
+    season_year: 2025,
+    season_start: "2025-04-07",
+    season_end: "2025-06-15",
+    match_format: '{"singles":2,"doubles":3}',
+    usta_team_id: "106311",
+    status: "completed",
+  },
+] as const;
+
+export const TOURNAMENT = {
+  id: "tourney-singles-championship-2026",
+  name: "Greenbrook Singles Championship 2026",
+  slug: "singles-championship-2026",
+  format: "round_robin",
+  match_type: "singles",
+  scoring_format: "best_of_3",
+  status: "active",
+  start_date: "2026-01-12",
+  end_date: "2026-03-24",
+} as const;

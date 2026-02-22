@@ -1,0 +1,21 @@
+{
+  "name": "Greenbrook Framers",
+  "short_name": "Framers",
+  "description": "Tennis team management for the Greenbrook Framers community",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0c4a6e",
+  "theme_color": "#0c4a6e",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

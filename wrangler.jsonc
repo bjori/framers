@@ -1,0 +1,19 @@
+{
+  "name": "greenbrook-framers",
+  "compatibility_date": "2026-02-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": ".open-next/assets",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "framers-v2",
+      "database_id": "8d8cf8ea-3c1b-4019-99d6-64ccf8f71606"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "75842b756f0042a69679be47b6df588b"
+    }
+  ]
+}
