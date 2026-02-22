@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyMagicToken, createSession, setSessionCookie } from "@/lib/auth";
 
-export const runtime = "edge";
-
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get("token");
   if (!token) {

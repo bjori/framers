@@ -2,8 +2,6 @@ import { getDB } from "@/lib/db";
 import { notFound } from "next/navigation";
 import { TeamSchedule } from "@/components/team-schedule";
 
-export const runtime = "edge";
-
 interface LeagueMatch {
   id: string;
   round_number: number;

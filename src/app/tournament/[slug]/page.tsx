@@ -3,8 +3,6 @@ import { notFound } from "next/navigation";
 import { TournamentSchedule } from "@/components/tournament-schedule";
 import { TournamentStandings } from "@/components/tournament-standings";
 
-export const runtime = "edge";
-
 interface TournamentMatch {
   id: string;
   week: number;

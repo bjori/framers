@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateMagicToken } from "@/lib/auth";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-export const runtime = "edge";
-
 export async function POST(request: NextRequest) {
   const { email } = (await request.json()) as { email?: string };
   if (!email) {
