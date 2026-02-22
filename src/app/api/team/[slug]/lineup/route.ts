@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { optimizeLineup, type AvailablePlayer } from "@/lib/lineup-optimizer";
+import { sendEmail } from "@/lib/email";
 
 export async function POST(
   request: NextRequest,
@@ -102,6 +103,46 @@ export async function POST(
           .bind(crypto.randomUUID(), lineupId, s.position, s.playerId, i >= (format.singles + format.doubles * 2) ? 1 : 0)
       )
     );
+
+    if (body.action === "confirm") {
+      const matchInfo = await db.prepare(
+        "SELECT opponent_team, match_date, is_home FROM league_matches WHERE id = ?"
+      ).bind(body.matchId).first<{ opponent_team: string; match_date: string; is_home: number }>();
+
+      if (matchInfo) {
+        const dateStr = new Date(matchInfo.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+        const playerIds = body.slots.map((s) => s.playerId);
+        const uniqueIds = [...new Set(playerIds)];
+
+        const players = (
+          await db.prepare(
+            `SELECT id, name, email FROM players WHERE id IN (${uniqueIds.map(() => "?").join(",")})`
+          ).bind(...uniqueIds).all<{ id: string; name: string; email: string }>()
+        ).results;
+
+        const lineupHtml = body.slots.map((s) => {
+          const p = players.find((pl) => pl.id === s.playerId);
+          return `<li><strong>${s.position}</strong>: ${p?.name ?? "TBD"}</li>`;
+        }).join("");
+
+        for (const p of players) {
+          const myPositions = body.slots.filter((s) => s.playerId === p.id).map((s) => s.position).join(", ");
+          await sendEmail({
+            to: p.email,
+            subject: `Lineup confirmed: ${matchInfo.opponent_team} on ${dateStr}`,
+            html: `
+              <h2>You're playing, ${p.name.split(" ")[0]}!</h2>
+              <p>The lineup for ${matchInfo.opponent_team} on <strong>${dateStr}</strong> (${matchInfo.is_home ? "Home" : "Away"}) has been confirmed.</p>
+              <p>Your position(s): <strong>${myPositions}</strong></p>
+              <h3>Full Lineup:</h3>
+              <ul>${lineupHtml}</ul>
+              <p><a href="https://framers.app/team/${slug}/match/${body.matchId}" style="display:inline-block;padding:12px 24px;background:#0c4a6e;color:white;text-decoration:none;border-radius:8px;font-weight:bold;">View Match Details</a></p>
+              <p>Good luck!<br>Greenbrook Framers</p>
+            `,
+          });
+        }
+      }
+    }
 
     return NextResponse.json({ ok: true, lineupId });
   }

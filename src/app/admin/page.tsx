@@ -22,6 +22,9 @@ export default function AdminPage() {
   const [editForm, setEditForm] = useState({ name: "", email: "", ntrp_rating: 0, ntrp_type: "" });
   const [message, setMessage] = useState("");
   const [recalculating, setRecalculating] = useState(false);
+  const [importing2025, setImporting2025] = useState(false);
+  const [creatingTourney, setCreatingTourney] = useState(false);
+  const [tourneyForm, setTourneyForm] = useState({ name: "", format: "round_robin", matchType: "singles", playerIds: "" });
 
   useEffect(() => {
     fetch("/api/auth/me").then(async (r) => {
@@ -96,6 +99,96 @@ export default function AdminPage() {
             className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold disabled:opacity-50"
           >
             {recalculating ? "Recalculating..." : "Recalculate All ELO"}
+          </button>
+          <button
+            onClick={async () => {
+              setImporting2025(true);
+              setMessage("");
+              const res = await fetch("/api/admin/import-2025", { method: "POST" });
+              if (res.ok) {
+                const data = (await res.json()) as { matchesImported: number };
+                setMessage(`Imported ${data.matchesImported} historical 2025 matches`);
+              } else {
+                setMessage("Failed to import 2025 data");
+              }
+              setImporting2025(false);
+            }}
+            disabled={importing2025}
+            className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-semibold disabled:opacity-50"
+          >
+            {importing2025 ? "Importing..." : "Import 2025 Historical Data"}
+          </button>
+        </div>
+      </section>
+
+      {/* Create Tournament */}
+      <section>
+        <h2 className="text-lg font-semibold mb-3">Create Tournament</h2>
+        <div className="bg-surface-alt rounded-xl border border-border p-4 space-y-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Name</label>
+            <input
+              value={tourneyForm.name}
+              onChange={(e) => setTourneyForm({ ...tourneyForm, name: e.target.value })}
+              placeholder="e.g. Spring Singles Championship"
+              className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Format</label>
+              <select
+                value={tourneyForm.format}
+                onChange={(e) => setTourneyForm({ ...tourneyForm, format: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm"
+              >
+                <option value="round_robin">Round Robin</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Type</label>
+              <select
+                value={tourneyForm.matchType}
+                onChange={(e) => setTourneyForm({ ...tourneyForm, matchType: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm"
+              >
+                <option value="singles">Singles</option>
+                <option value="doubles">Doubles</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Player IDs (comma-separated)</label>
+            <textarea
+              value={tourneyForm.playerIds}
+              onChange={(e) => setTourneyForm({ ...tourneyForm, playerIds: e.target.value })}
+              placeholder="Leave empty to select from roster later"
+              className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm h-16"
+            />
+          </div>
+          <button
+            onClick={async () => {
+              if (!tourneyForm.name) { setMessage("Tournament name required"); return; }
+              setCreatingTourney(true);
+              const res = await fetch("/api/admin/tournaments", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(tourneyForm),
+              });
+              if (res.ok) {
+                const data = (await res.json()) as { tournament: { slug: string }; matchCount: number };
+                setMessage(`Tournament created with ${data.matchCount} matches`);
+                setTourneyForm({ name: "", format: "round_robin", matchType: "singles", playerIds: "" });
+              } else {
+                const data = (await res.json()) as { error: string };
+                setMessage(`Error: ${data.error}`);
+              }
+              setCreatingTourney(false);
+            }}
+            disabled={creatingTourney}
+            className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold disabled:opacity-50"
+          >
+            {creatingTourney ? "Creating..." : "Create Tournament"}
           </button>
         </div>
       </section>
