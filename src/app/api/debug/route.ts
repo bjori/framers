@@ -59,6 +59,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, updated: updates.length + updates2.length, newPlayers: newPlayers.length, players });
     }
 
+    if (body.action === "import-2025") {
+      const { HISTORICAL_2025_MATCHES } = await import("@/lib/historical-2025-data");
+      await db.prepare("DELETE FROM league_match_results WHERE match_id LIKE 'hist-2025-%'").run();
+      await db.prepare("DELETE FROM league_matches WHERE id LIKE 'hist-2025-%'").run();
+
+      for (let i = 0; i < HISTORICAL_2025_MATCHES.length; i++) {
+        const match = HISTORICAL_2025_MATCHES[i];
+        const matchId = `hist-2025-${String(i + 1).padStart(2, "0")}`;
+        const isHome = match.homeTeam === "us" ? 1 : 0;
+        const result = match.ourScore > match.theirScore ? "win" : "loss";
+
+        await db.prepare(
+          `INSERT INTO league_matches (id, team_id, round_number, opponent_team, match_date, is_home, team_result, team_score, status) VALUES (?,?,?,?,?,?,?,?,'completed')`
+        ).bind(matchId, match.teamId, i + 1, match.opponent, match.date, isHome, result, `${match.ourScore}-${match.theirScore}`).run();
+
+        for (let li = 0; li < match.lines.length; li++) {
+          const line = match.lines[li];
+          const pos = `${line.type === "singles" ? "S" : "D"}${line.position}`;
+          const ourSide = match.homeTeam === "us" ? "home" : "visitor";
+          const won = line.winReversed ? 0 : (ourSide === line.winner ? 1 : 0);
+          const players = (ourSide === "home" ? line.homePlayers : line.visitorPlayers).filter((p): p is string => p !== null);
+          const ourScores = line.score.split(",").map(s => { const p = s.trim().split("-").map(Number); return ourSide === "home" ? p[0] : p[1]; }).join(",");
+          const oppScores = line.score.split(",").map(s => { const p = s.trim().split("-").map(Number); return ourSide === "home" ? p[1] : p[0]; }).join(",");
+          await db.prepare(
+            `INSERT INTO league_match_results (id, match_id, position, won, our_score, opp_score, player1_id, player2_id) VALUES (?,?,?,?,?,?,?,?)`
+          ).bind(`${matchId}-${li+1}`, matchId, pos, won, ourScores, oppScores, players[0] ?? null, players[1] ?? null).run();
+        }
+      }
+      return NextResponse.json({ ok: true, imported: HISTORICAL_2025_MATCHES.length });
+    }
+
     if (body.action === "recalc-elo") {
       const players = (await db.prepare("SELECT id, ntrp_rating FROM players").all<{ id: string; ntrp_rating: number }>()).results;
       await db.batch(players.map((p) =>
