@@ -26,5 +26,9 @@
       "binding": "KV",
       "id": "75842b756f0042a69679be47b6df588b"
     }
+  ],
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "framers.app", "custom_domain": true }
   ]
 }
