@@ -2,7 +2,7 @@ export const PLAYERS = [
   // === Tournament + USTA 2026 40+ (11 players) ===
   { id: "624ef626-b13a-47c9-b23b-6fa96c237f47", name: "Brad Allen", email: "brad.allen@framers.app", ntrp: 3.0, ntrp_type: "3.0A" },
   { id: "5c591f7a-9f54-4e86-a507-787d2770f028", name: "Dan Lopez", email: "dan.lopez@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
-  { id: "8dbc87ab-f415-40ee-9fed-e7857445f998", name: "Hannes Magnusson", email: "hannes@magnusson.is", ntrp: 3.0, ntrp_type: "3.0S", is_admin: 1 },
+  { id: "8dbc87ab-f415-40ee-9fed-e7857445f998", name: "Hannes Magnusson", email: "hannes.magnusson@gmail.com", ntrp: 3.0, ntrp_type: "3.0S", is_admin: 1 },
   { id: "92e1a868-573c-487e-93c6-3f84488a222c", name: "Joe Moss", email: "joe.moss@framers.app", ntrp: 2.5, ntrp_type: "2.5A" },
   { id: "ad74e6ea-ffcc-419f-8c15-3dcdf366d490", name: "Joel Zdarko", email: "joel.zdarko@framers.app", ntrp: 3.0, ntrp_type: "3.0S" },
   { id: "acd5a9ec-d224-466a-a6d1-7b9b28aa961b", name: "Kirk Martinez", email: "kirk.martinez@framers.app", ntrp: 2.5, ntrp_type: "2.5S" },

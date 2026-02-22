@@ -16,7 +16,7 @@ export async function GET() {
     await db.batch([
       db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("624ef626-b13a-47c9-b23b-6fa96c237f47","Brad Allen","brad.allen@framers.app",3.0,"3.0A",0),
       db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("5c591f7a-9f54-4e86-a507-787d2770f028","Dan Lopez","dan.lopez@framers.app",3.0,"3.0S",0),
-      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("8dbc87ab-f415-40ee-9fed-e7857445f998","Hannes Magnusson","hannes@magnusson.is",3.0,"3.0S",1),
+      db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("8dbc87ab-f415-40ee-9fed-e7857445f998","Hannes Magnusson","hannes.magnusson@gmail.com",3.0,"3.0S",1),
       db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("92e1a868-573c-487e-93c6-3f84488a222c","Joe Moss","joe.moss@framers.app",2.5,"2.5A",0),
       db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("ad74e6ea-ffcc-419f-8c15-3dcdf366d490","Joel Zdarko","joel.zdarko@framers.app",3.0,"3.0S",0),
       db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type,is_admin) VALUES (?,?,?,?,?,?)").bind("acd5a9ec-d224-466a-a6d1-7b9b28aa961b","Kirk Martinez","kirk.martinez@framers.app",2.5,"2.5S",0),

@@ -1,6 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-const ALLOWED_RECIPIENTS = ["hannes@magnusson.is"];
+const ALLOWED_RECIPIENTS = ["hannes.magnusson@gmail.com"];
 
 interface SendEmailOptions {
   to: string;

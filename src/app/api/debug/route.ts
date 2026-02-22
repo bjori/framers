@@ -1,5 +1,26 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+
+export async function POST(request: NextRequest) {
+  try {
+    const { env } = await getCloudflareContext({ async: true });
+    const db = env.DB;
+    const body = (await request.json()) as { action?: string };
+
+    if (body.action === "fix-email") {
+      await db.prepare("UPDATE players SET email = ? WHERE id = ?")
+        .bind("hannes.magnusson@gmail.com", "8dbc87ab-f415-40ee-9fed-e7857445f998")
+        .run();
+      const player = await db.prepare("SELECT id, name, email FROM players WHERE id = ?")
+        .bind("8dbc87ab-f415-40ee-9fed-e7857445f998").first();
+      return NextResponse.json({ ok: true, player });
+    }
+
+    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
 
 export async function GET() {
   try {
