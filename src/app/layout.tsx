@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Nav } from "@/components/nav";
+import { ImpersonationBanner } from "@/components/impersonation-banner";
 
 export const metadata: Metadata = {
   title: "Greenbrook Framers",
@@ -32,6 +33,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-surface text-slate-900 dark:text-slate-100 min-h-dvh flex flex-col">
+        <ImpersonationBanner />
         <Nav />
         <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:px-6 sm:py-6">
           {children}

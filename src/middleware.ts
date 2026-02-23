@@ -11,11 +11,15 @@ const PUBLIC_PATHS = [
   "/api/seed",
   "/api/nav",
   "/api/ics",
+  "/api/cron",
 ];
 
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.includes(pathname)) return true;
   if (pathname.startsWith("/api/ics/")) return true;
+  if (pathname.startsWith("/join/")) return true;
+  if (pathname.startsWith("/api/team/") && pathname.endsWith("/interest")) return true;
+  if (pathname.startsWith("/api/team/") && pathname.endsWith("/info")) return true;
   if (pathname.startsWith("/_next/")) return true;
   if (pathname.startsWith("/icon-")) return true;
   if (pathname === "/manifest.json") return true;

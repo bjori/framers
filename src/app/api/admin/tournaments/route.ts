@@ -63,20 +63,30 @@ export async function POST(request: NextRequest) {
   let matchCount = 0;
 
   if (body.playerIds?.trim()) {
-    const playerIds = body.playerIds.split(",").map((s) => s.trim()).filter(Boolean);
+    const entries = body.playerIds.split(",").map((s) => s.trim()).filter(Boolean);
+    const isDoubles = body.matchType === "doubles";
 
     const participants: { id: string; index: number }[] = [];
-    for (let i = 0; i < playerIds.length; i++) {
+
+    for (let i = 0; i < entries.length; i++) {
       const participantId = crypto.randomUUID();
-      await db.prepare(
-        "INSERT INTO tournament_participants (id, tournament_id, player_id, seed) VALUES (?, ?, ?, ?)"
-      ).bind(participantId, tournamentId, playerIds[i], i + 1).run();
+      if (isDoubles && entries[i].includes(":")) {
+        const [playerId, partnerId] = entries[i].split(":");
+        await db.prepare(
+          "INSERT INTO tournament_participants (id, tournament_id, player_id, partner_id, seed) VALUES (?, ?, ?, ?, ?)"
+        ).bind(participantId, tournamentId, playerId, partnerId, i + 1).run();
+      } else {
+        await db.prepare(
+          "INSERT INTO tournament_participants (id, tournament_id, player_id, seed) VALUES (?, ?, ?, ?)"
+        ).bind(participantId, tournamentId, entries[i], i + 1).run();
+      }
       participants.push({ id: participantId, index: i });
     }
 
     if (body.format === "round_robin") {
-      const pairs = generateRoundRobin(playerIds);
-      const matchesPerWeek = Math.floor(playerIds.length / 2);
+      const entryIds = entries.map((_, idx) => idx.toString());
+      const pairs = generateRoundRobin(entryIds);
+      const matchesPerWeek = Math.floor(entries.length / 2);
       const weeks = assignWeeks(pairs.length, matchesPerWeek);
 
       for (let i = 0; i < pairs.length; i++) {

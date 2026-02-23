@@ -37,7 +37,7 @@ function statusColor(status: string | null): string {
   }
 }
 
-export default function AvailabilityGrid({ roster, matches, availability }: Props) {
+export default function AvailabilityGrid({ roster, matches, availability, neededPlayers = 7 }: Props & { neededPlayers?: number }) {
   const avMap = new Map<string, string>();
   for (const a of availability) {
     avMap.set(`${a.player_id}:${a.match_id}`, a.status ?? "pending");
@@ -96,11 +96,15 @@ export default function AvailabilityGrid({ roster, matches, availability }: Prop
             ))}
             <tr className="border-t-2 border-border">
               <td className="px-3 py-1.5 font-semibold text-xs sticky left-0 bg-surface-alt z-10">Available</td>
-              {displayMatches.map((m) => (
-                <td key={m.id} className="px-2 py-1.5 text-center font-bold text-xs">
-                  {yesCount(m.id)}/{roster.length}
-                </td>
-              ))}
+              {displayMatches.map((m) => {
+                const yes = yesCount(m.id);
+                const color = yes >= neededPlayers ? "text-accent" : yes >= neededPlayers - 2 ? "text-warning" : "text-danger";
+                return (
+                  <td key={m.id} className={`px-2 py-1.5 text-center font-bold text-xs ${color}`}>
+                    {yes}/{roster.length}
+                  </td>
+                );
+              })}
             </tr>
           </tbody>
         </table>

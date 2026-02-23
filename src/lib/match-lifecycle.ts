@@ -1,14 +1,14 @@
 import { getDB } from "@/lib/db";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, emailTemplate } from "@/lib/email";
 
 export type MatchStatus = "open" | "needs_players" | "rsvp_closed" | "lineup_draft" | "lineup_confirmed" | "locked" | "completed" | "cancelled";
 
 const VALID_TRANSITIONS: Record<MatchStatus, MatchStatus[]> = {
-  open: ["needs_players", "rsvp_closed", "cancelled"],
-  needs_players: ["open", "rsvp_closed", "cancelled"],
-  rsvp_closed: ["lineup_draft", "cancelled"],
-  lineup_draft: ["lineup_confirmed", "rsvp_closed", "cancelled"],
-  lineup_confirmed: ["locked", "lineup_draft", "cancelled"],
+  open: ["needs_players", "rsvp_closed", "lineup_draft", "lineup_confirmed", "cancelled"],
+  needs_players: ["open", "rsvp_closed", "lineup_confirmed", "cancelled"],
+  rsvp_closed: ["lineup_draft", "lineup_confirmed", "cancelled"],
+  lineup_draft: ["lineup_confirmed", "rsvp_closed", "open", "cancelled"],
+  lineup_confirmed: ["locked", "lineup_draft", "open", "completed", "cancelled"],
   locked: ["completed", "lineup_confirmed", "cancelled"],
   completed: [],
   cancelled: ["open"],
@@ -72,13 +72,16 @@ async function sendNeedsPlayersEmail(teamId: string, opponent: string, date: str
     await sendEmail({
       to: m.email,
       subject: `We need you! RSVP for ${opponent} on ${dateStr}`,
-      html: `
-        <h2>Hey ${m.name.split(" ")[0]},</h2>
-        <p>We're short on players for our match against <strong>${opponent}</strong> on <strong>${dateStr}</strong>.</p>
-        <p>Please RSVP as soon as possible:</p>
-        <p><a href="https://framers.app/team/${teamSlug}/match/${matchId}" style="display:inline-block;padding:12px 24px;background:#0c4a6e;color:white;text-decoration:none;border-radius:8px;font-weight:bold;">RSVP Now</a></p>
-        <p>Thanks!<br>Greenbrook Framers</p>
-      `,
+      html: emailTemplate(
+        `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${m.name.split(" ")[0]},</h2>
+         <p>We're short on players for our match against <strong>${opponent}</strong> on <strong>${dateStr}</strong>.</p>
+         <p>Please RSVP as soon as possible so we can finalize the lineup!</p>`,
+        {
+          heading: "RSVP Needed",
+          ctaUrl: `https://framers.app/team/${teamSlug}/match/${matchId}`,
+          ctaLabel: "RSVP Now",
+        }
+      ),
     });
   }
 }

@@ -22,7 +22,12 @@ body {
 }
 
 @media (prefers-color-scheme: dark) {
-  @theme {
+  :root {
+    --color-primary-light: #38bdf8;
+    --color-accent: #4ade80;
+    --color-accent-light: #86efac;
+    --color-warning: #fbbf24;
+    --color-danger: #f87171;
     --color-surface: #0f172a;
     --color-surface-alt: #1e293b;
     --color-border: #334155;

@@ -68,6 +68,22 @@ export async function GET() {
       db.prepare("INSERT INTO team_memberships (player_id,team_id,role) VALUES (?,?,?)").bind(pid, "team-senior-framers-2026", i === 0 ? "captain" : "player")
     ));
 
+    // Batch 3b: Team memberships (Junior Framers 2026)
+    const juniorPlayers = [
+      "8dbc87ab-f415-40ee-9fed-e7857445f998",
+      "92e1a868-573c-487e-93c6-3f84488a222c","ad74e6ea-ffcc-419f-8c15-3dcdf366d490",
+      "bbbf95a3-2773-4035-8b20-99354ab33a0d","a1b2c3d4-1111-4000-8000-000000000006",
+      "eb9d8bcb-ad69-43fc-87c2-d7024060185a","5a61d2ac-cd7c-4f10-8716-f3fc6f3351fa",
+      "acd5a9ec-d224-466a-a6d1-7b9b28aa961b","a1b2c3d4-3333-4000-8000-000000000001",
+      "624ef626-b13a-47c9-b23b-6fa96c237f47","a1b2c3d4-3333-4000-8000-000000000002",
+      "269a7039-5e49-47b3-a621-d4c40f3f40b5","a1b2c3d4-1111-4000-8000-000000000003",
+      "5c591f7a-9f54-4e86-a507-787d2770f028","a1b2c3d4-1111-4000-8000-000000000005",
+      "a1b2c3d4-1111-4000-8000-000000000004",
+    ];
+    await db.batch(juniorPlayers.map((pid, i) =>
+      db.prepare("INSERT INTO team_memberships (player_id,team_id,role) VALUES (?,?,?)").bind(pid, "team-junior-framers-2026", i === 0 ? "captain" : "player")
+    ));
+
     // Batch 4: Tournament participants
     const tpMap = [
       ["tp-brad","624ef626-b13a-47c9-b23b-6fa96c237f47"],

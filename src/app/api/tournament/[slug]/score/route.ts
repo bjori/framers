@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { calculateElo } from "@/lib/elo";
+import { track } from "@/lib/analytics";
 
 interface ScoreBody {
   matchId: string;
@@ -30,9 +31,9 @@ export async function POST(
   const db = await getDB();
 
   const tournament = await db
-    .prepare("SELECT id FROM tournaments WHERE slug = ?")
+    .prepare("SELECT id, match_type FROM tournaments WHERE slug = ?")
     .bind(slug)
-    .first<{ id: string }>();
+    .first<{ id: string; match_type: string }>();
 
   if (!tournament) {
     return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
@@ -95,18 +96,22 @@ export async function POST(
     .run();
 
   // ELO update
+  const isDoublesMatch = tournament.match_type === "doubles";
+  const eloType = isDoublesMatch ? "doubles" : "singles";
+  const eloCol = isDoublesMatch ? "doubles_elo" : "singles_elo";
+
   const winnerPlayerId = winnerId === match.participant1_id ? match.p1_player_id : match.p2_player_id;
   const loserPlayerId = winnerId === match.participant1_id ? match.p2_player_id : match.p1_player_id;
 
-  const winner = await db.prepare("SELECT singles_elo FROM players WHERE id = ?").bind(winnerPlayerId).first<{ singles_elo: number }>();
-  const loser = await db.prepare("SELECT singles_elo FROM players WHERE id = ?").bind(loserPlayerId).first<{ singles_elo: number }>();
+  const winner = await db.prepare(`SELECT ${eloCol} as elo FROM players WHERE id = ?`).bind(winnerPlayerId).first<{ elo: number }>();
+  const loser = await db.prepare(`SELECT ${eloCol} as elo FROM players WHERE id = ?`).bind(loserPlayerId).first<{ elo: number }>();
 
   if (winner && loser) {
     const winnerMatchCount = (
-      await db.prepare("SELECT count(*) as cnt FROM elo_history WHERE player_id = ? AND type = 'singles'").bind(winnerPlayerId).first<{ cnt: number }>()
+      await db.prepare("SELECT count(*) as cnt FROM elo_history WHERE player_id = ? AND type = ?").bind(winnerPlayerId, eloType).first<{ cnt: number }>()
     )?.cnt ?? 0;
     const loserMatchCount = (
-      await db.prepare("SELECT count(*) as cnt FROM elo_history WHERE player_id = ? AND type = 'singles'").bind(loserPlayerId).first<{ cnt: number }>()
+      await db.prepare("SELECT count(*) as cnt FROM elo_history WHERE player_id = ? AND type = ?").bind(loserPlayerId, eloType).first<{ cnt: number }>()
     )?.cnt ?? 0;
 
     const wSets = winnerId === match.participant1_id ? score1Sets : score2Sets;
@@ -118,22 +123,55 @@ export async function POST(
     }
 
     const elo = calculateElo(
-      winner.singles_elo, loser.singles_elo, true,
+      winner.elo, loser.elo, true,
       winnerMatchCount, loserMatchCount,
       { setsWonByWinner: setsWon, setsWonByLoser: setsLost }
     );
 
-    await db.batch([
-      db.prepare("UPDATE players SET singles_elo = ? WHERE id = ?").bind(elo.newRatingA, winnerPlayerId),
-      db.prepare("UPDATE players SET singles_elo = ? WHERE id = ?").bind(elo.newRatingB, loserPlayerId),
+    const stmts = [
+      db.prepare(`UPDATE players SET ${eloCol} = ? WHERE id = ?`).bind(elo.newRatingA, winnerPlayerId),
+      db.prepare(`UPDATE players SET ${eloCol} = ? WHERE id = ?`).bind(elo.newRatingB, loserPlayerId),
       db.prepare(
         "INSERT INTO elo_history (id, player_id, type, old_elo, new_elo, delta, source, source_id) VALUES (?,?,?,?,?,?,?,?)"
-      ).bind(crypto.randomUUID(), winnerPlayerId, "singles", winner.singles_elo, elo.newRatingA, elo.deltaA, "tournament_match", matchId),
+      ).bind(crypto.randomUUID(), winnerPlayerId, eloType, winner.elo, elo.newRatingA, elo.deltaA, "tournament_match", matchId),
       db.prepare(
         "INSERT INTO elo_history (id, player_id, type, old_elo, new_elo, delta, source, source_id) VALUES (?,?,?,?,?,?,?,?)"
-      ).bind(crypto.randomUUID(), loserPlayerId, "singles", loser.singles_elo, elo.newRatingB, elo.deltaB, "tournament_match", matchId),
-    ]);
+      ).bind(crypto.randomUUID(), loserPlayerId, eloType, loser.elo, elo.newRatingB, elo.deltaB, "tournament_match", matchId),
+    ];
+
+    if (isDoublesMatch) {
+      const winnerPart = await db.prepare("SELECT partner_id FROM tournament_participants WHERE id = ?")
+        .bind(winnerId === match.participant1_id ? match.participant1_id : match.participant2_id).first<{ partner_id: string | null }>();
+      const loserPart = await db.prepare("SELECT partner_id FROM tournament_participants WHERE id = ?")
+        .bind(winnerId === match.participant1_id ? match.participant2_id : match.participant1_id).first<{ partner_id: string | null }>();
+
+      if (winnerPart?.partner_id) {
+        const wp = await db.prepare("SELECT doubles_elo FROM players WHERE id = ?").bind(winnerPart.partner_id).first<{ doubles_elo: number }>();
+        if (wp) {
+          stmts.push(
+            db.prepare("UPDATE players SET doubles_elo = ? WHERE id = ?").bind(wp.doubles_elo + elo.deltaA, winnerPart.partner_id),
+            db.prepare(
+              "INSERT INTO elo_history (id, player_id, type, old_elo, new_elo, delta, source, source_id) VALUES (?,?,?,?,?,?,?,?)"
+            ).bind(crypto.randomUUID(), winnerPart.partner_id, "doubles", wp.doubles_elo, wp.doubles_elo + elo.deltaA, elo.deltaA, "tournament_match", matchId)
+          );
+        }
+      }
+      if (loserPart?.partner_id) {
+        const lp = await db.prepare("SELECT doubles_elo FROM players WHERE id = ?").bind(loserPart.partner_id).first<{ doubles_elo: number }>();
+        if (lp) {
+          stmts.push(
+            db.prepare("UPDATE players SET doubles_elo = ? WHERE id = ?").bind(lp.doubles_elo + elo.deltaB, loserPart.partner_id),
+            db.prepare(
+              "INSERT INTO elo_history (id, player_id, type, old_elo, new_elo, delta, source, source_id) VALUES (?,?,?,?,?,?,?,?)"
+            ).bind(crypto.randomUUID(), loserPart.partner_id, "doubles", lp.doubles_elo, lp.doubles_elo + elo.deltaB, elo.deltaB, "tournament_match", matchId)
+          );
+        }
+      }
+    }
+
+    await db.batch(stmts);
   }
 
+  await track("score_submitted", { playerId: session.player_id, detail: `tournament:${matchId}` });
   return NextResponse.json({ ok: true });
 }

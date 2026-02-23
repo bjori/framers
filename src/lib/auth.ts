@@ -2,6 +2,7 @@ import { getDB, getKV } from "./db";
 import { cookies } from "next/headers";
 
 const SESSION_COOKIE = "framers_session";
+const IMPERSONATE_COOKIE = "framers_impersonate";
 const SESSION_TTL = 60 * 60 * 24 * 30; // 30 days
 
 export async function createSession(playerId: string): Promise<string> {
@@ -23,7 +24,7 @@ export async function getSession() {
   if (!token) return null;
 
   const db = await getDB();
-  const session = await db
+  const realSession = await db
     .prepare(
       `SELECT s.player_id, p.name, p.email, p.is_admin, p.ntrp_rating, p.ntrp_type
        FROM sessions s
@@ -40,7 +41,27 @@ export async function getSession() {
       ntrp_type: string;
     }>();
 
-  return session;
+  if (!realSession) return null;
+
+  const impersonateId = cookieStore.get(IMPERSONATE_COOKIE)?.value;
+  if (impersonateId && realSession.is_admin === 1) {
+    const impersonated = await db
+      .prepare("SELECT id as player_id, name, email, is_admin, ntrp_rating, ntrp_type FROM players WHERE id = ?")
+      .bind(impersonateId)
+      .first<{ player_id: string; name: string; email: string; is_admin: number; ntrp_rating: number; ntrp_type: string }>();
+
+    if (impersonated) {
+      return {
+        ...impersonated,
+        is_admin: impersonated.is_admin,
+        isImpersonating: true as const,
+        realAdminId: realSession.player_id,
+        realAdminName: realSession.name,
+      };
+    }
+  }
+
+  return { ...realSession, isImpersonating: false as const };
 }
 
 export function setSessionCookie(token: string) {

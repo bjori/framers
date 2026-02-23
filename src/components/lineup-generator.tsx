@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 interface LineupSlot {
   position: string;
@@ -9,10 +9,17 @@ interface LineupSlot {
   score: number;
 }
 
+interface BenchPlayer {
+  id: string;
+  name: string;
+  singlesElo: number;
+  doublesElo?: number;
+}
+
 interface LineupResult {
   slots: LineupSlot[];
-  unassigned: { id: string; name: string; singlesElo: number }[];
-  alternates: { id: string; name: string; singlesElo: number }[];
+  unassigned: BenchPlayer[];
+  alternates: BenchPlayer[];
 }
 
 export function LineupGenerator({ slug, matchId }: { slug: string; matchId: string }) {
@@ -20,10 +27,16 @@ export function LineupGenerator({ slug, matchId }: { slug: string; matchId: stri
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const touchStartY = useRef(0);
+  const touchSlotIdx = useRef<number | null>(null);
 
   async function generateLineup() {
     setLoading(true);
     setMessage("");
+    setSelectedIdx(null);
     const res = await fetch(`/api/team/${slug}/lineup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -60,13 +73,117 @@ export function LineupGenerator({ slug, matchId }: { slug: string; matchId: stri
     setSaving(false);
   }
 
-  function swapPlayers(idx1: number, idx2: number) {
-    if (!lineup) return;
+  function swapSlots(i: number, j: number) {
+    if (!lineup || i === j) return;
     const next = { ...lineup, slots: [...lineup.slots] };
-    const temp = { ...next.slots[idx1] };
-    next.slots[idx1] = { ...next.slots[idx1], playerId: next.slots[idx2].playerId, playerName: next.slots[idx2].playerName, score: next.slots[idx2].score };
-    next.slots[idx2] = { ...next.slots[idx2], playerId: temp.playerId, playerName: temp.playerName, score: temp.score };
+    const a = next.slots[i];
+    const b = next.slots[j];
+    next.slots[i] = { ...a, playerId: b.playerId, playerName: b.playerName, score: b.score };
+    next.slots[j] = { ...b, playerId: a.playerId, playerName: a.playerName, score: a.score };
     setLineup(next);
+    setSelectedIdx(null);
+  }
+
+  function subInAlternate(benchPlayer: BenchPlayer, targetIdx: number) {
+    if (!lineup) return;
+    const slot = lineup.slots[targetIdx];
+    const evictedPlayer: BenchPlayer = {
+      id: slot.playerId,
+      name: slot.playerName,
+      singlesElo: slot.score,
+    };
+
+    const isDoublesSlot = slot.position.startsWith("D");
+    const next = {
+      ...lineup,
+      slots: lineup.slots.map((s, i) =>
+        i === targetIdx
+          ? { ...s, playerId: benchPlayer.id, playerName: benchPlayer.name, score: isDoublesSlot ? (benchPlayer.doublesElo ?? benchPlayer.singlesElo) : benchPlayer.singlesElo }
+          : s
+      ),
+      alternates: [
+        ...lineup.alternates.filter((a) => a.id !== benchPlayer.id),
+        evictedPlayer,
+      ],
+      unassigned: [
+        ...lineup.unassigned.filter((a) => a.id !== benchPlayer.id),
+        evictedPlayer,
+      ],
+    };
+    setLineup(next);
+    setSelectedIdx(null);
+  }
+
+  function handleSlotTap(idx: number) {
+    if (selectedIdx === null) {
+      setSelectedIdx(idx);
+    } else if (selectedIdx === idx) {
+      setSelectedIdx(null);
+    } else {
+      swapSlots(selectedIdx, idx);
+    }
+  }
+
+  function handleDragStart(idx: number) {
+    setDragIdx(idx);
+    setSelectedIdx(null);
+  }
+
+  function handleDragOver(e: React.DragEvent, idx: number) {
+    e.preventDefault();
+    setDropTarget(idx);
+  }
+
+  function handleDrop(idx: number) {
+    if (dragIdx !== null && dragIdx !== idx) {
+      swapSlots(dragIdx, idx);
+    }
+    setDragIdx(null);
+    setDropTarget(null);
+  }
+
+  function handleDragEnd() {
+    setDragIdx(null);
+    setDropTarget(null);
+  }
+
+  function handleTouchStart(e: React.TouchEvent, idx: number) {
+    touchStartY.current = e.touches[0].clientY;
+    touchSlotIdx.current = idx;
+  }
+
+  function handleTouchEnd(e: React.TouchEvent, idx: number) {
+    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+    if (Math.abs(deltaY) < 10) return; // tap, not drag
+    if (!lineup) return;
+    if (deltaY < -30 && idx > 0) {
+      swapSlots(idx, idx - 1);
+    } else if (deltaY > 30 && idx < lineup.slots.length - 1) {
+      swapSlots(idx, idx + 1);
+    }
+  }
+
+  const positionLabels: Record<string, string> = {
+    S1: "Singles 1", S2: "Singles 2",
+    D1A: "Doubles 1", D1B: "Doubles 1",
+    D2A: "Doubles 2", D2B: "Doubles 2",
+    D3A: "Doubles 3", D3B: "Doubles 3",
+  };
+
+  function groupedSlots() {
+    if (!lineup) return [];
+    const groups: { label: string; key: string; slots: { slot: LineupSlot; idx: number }[] }[] = [];
+    let currentGroup = "";
+    for (let i = 0; i < lineup.slots.length; i++) {
+      const s = lineup.slots[i];
+      const label = positionLabels[s.position] ?? s.position;
+      if (label !== currentGroup) {
+        currentGroup = label;
+        groups.push({ label, key: s.position, slots: [] });
+      }
+      groups[groups.length - 1].slots.push({ slot: s, idx: i });
+    }
+    return groups;
   }
 
   return (
@@ -85,57 +202,150 @@ export function LineupGenerator({ slug, matchId }: { slug: string; matchId: stri
       {message && <p className="text-sm text-primary-light">{message}</p>}
 
       {lineup && (
-        <div className="bg-surface-alt rounded-xl border border-border overflow-hidden">
-          <div className="divide-y divide-border">
-            {lineup.slots.map((s, i) => (
-              <div key={s.position} className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-bold uppercase text-slate-400 w-10">{s.position}</span>
-                  <span className="font-medium text-sm">{s.playerName}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400">{s.score}</span>
-                  {i > 0 && (
-                    <button onClick={() => swapPlayers(i, i - 1)} className="text-xs text-slate-400 hover:text-primary-light p-1">
-                      ↑
-                    </button>
-                  )}
-                  {i < lineup.slots.length - 1 && (
-                    <button onClick={() => swapPlayers(i, i + 1)} className="text-xs text-slate-400 hover:text-primary-light p-1">
-                      ↓
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {lineup.alternates.length > 0 && (
-            <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/50 border-t border-border">
-              <p className="text-xs font-semibold text-slate-400 mb-1">Alternates</p>
-              {lineup.alternates.map((a) => (
-                <p key={a.id} className="text-sm">{a.name} ({a.singlesElo})</p>
-              ))}
-            </div>
+        <>
+          {selectedIdx !== null && (
+            <p className="text-xs text-sky-600 dark:text-sky-400 animate-pulse">
+              Tap another position to swap, or tap a bench player to sub them in
+            </p>
           )}
 
-          <div className="flex gap-2 p-4 border-t border-border">
-            <button
-              onClick={() => saveLineup(false)}
-              disabled={saving}
-              className="flex-1 py-2 rounded-lg border border-border text-sm font-semibold disabled:opacity-50"
-            >
-              Save Draft
-            </button>
-            <button
-              onClick={() => saveLineup(true)}
-              disabled={saving}
-              className="flex-1 py-2 rounded-lg bg-accent text-white text-sm font-semibold disabled:opacity-50"
-            >
-              Confirm Lineup
-            </button>
+          <div className="bg-surface-alt rounded-xl border border-border overflow-hidden">
+            {groupedSlots().map((group) => (
+              <div key={group.key}>
+                <div className="px-4 py-1.5 bg-slate-100 dark:bg-slate-800/70 border-b border-border">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    {group.label}
+                  </span>
+                </div>
+                {group.slots.map(({ slot, idx }) => {
+                  const isSelected = selectedIdx === idx;
+                  const isDragging = dragIdx === idx;
+                  const isDropZone = dropTarget === idx && dragIdx !== null && dragIdx !== idx;
+                  return (
+                    <div
+                      key={slot.position}
+                      draggable
+                      onDragStart={() => handleDragStart(idx)}
+                      onDragOver={(e) => handleDragOver(e, idx)}
+                      onDrop={() => handleDrop(idx)}
+                      onDragEnd={handleDragEnd}
+                      onTouchStart={(e) => handleTouchStart(e, idx)}
+                      onTouchEnd={(e) => handleTouchEnd(e, idx)}
+                      onClick={() => handleSlotTap(idx)}
+                      className={`flex items-center justify-between px-4 py-3 cursor-pointer select-none transition-all border-b border-border last:border-b-0 ${
+                        isSelected
+                          ? "bg-sky-50 dark:bg-sky-900/30 ring-2 ring-inset ring-sky-400"
+                          : isDropZone
+                            ? "bg-sky-50/50 dark:bg-sky-900/20 border-sky-300"
+                            : isDragging
+                              ? "opacity-50"
+                              : "hover:bg-slate-50 dark:hover:bg-slate-800/50 active:bg-slate-100 dark:active:bg-slate-700/50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex flex-col items-center w-6 text-slate-300 dark:text-slate-600 touch-none">
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="8" cy="6" r="1.5" />
+                            <circle cx="16" cy="6" r="1.5" />
+                            <circle cx="8" cy="12" r="1.5" />
+                            <circle cx="16" cy="12" r="1.5" />
+                            <circle cx="8" cy="18" r="1.5" />
+                            <circle cx="16" cy="18" r="1.5" />
+                          </svg>
+                        </div>
+                        <span className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 w-8">
+                          {slot.position}
+                        </span>
+                        <span className="font-medium text-sm text-slate-900 dark:text-white">
+                          {slot.playerName}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400 font-mono">{slot.score}</span>
+                        {idx > 0 && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); swapSlots(idx, idx - 1); }}
+                            className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                            </svg>
+                          </button>
+                        )}
+                        {lineup && idx < lineup.slots.length - 1 && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); swapSlots(idx, idx + 1); }}
+                            className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+
+            {/* Bench / Alternates */}
+            {lineup.alternates.length > 0 && (
+              <div className="border-t-2 border-dashed border-slate-300 dark:border-slate-600">
+                <div className="px-4 py-1.5 bg-slate-100 dark:bg-slate-800/70">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Bench
+                  </span>
+                </div>
+                {lineup.alternates.map((a) => (
+                  <div
+                    key={a.id}
+                    onClick={() => {
+                      if (selectedIdx !== null) subInAlternate(a, selectedIdx);
+                    }}
+                    className={`flex items-center justify-between px-4 py-3 border-b border-border last:border-b-0 transition-colors ${
+                      selectedIdx !== null
+                        ? "cursor-pointer hover:bg-sky-50 dark:hover:bg-sky-900/20 active:bg-sky-100 dark:active:bg-sky-900/40"
+                        : ""
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-6" />
+                      <span className="w-8" />
+                      <span className="text-sm text-slate-600 dark:text-slate-300">{a.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400 font-mono">{a.singlesElo}</span>
+                      {selectedIdx !== null && (
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300">
+                          Sub In
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex gap-2 p-4 border-t border-border bg-white dark:bg-slate-900">
+              <button
+                onClick={() => saveLineup(false)}
+                disabled={saving}
+                className="flex-1 py-2.5 rounded-lg border border-border text-sm font-semibold disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                Save Draft
+              </button>
+              <button
+                onClick={() => saveLineup(true)}
+                disabled={saving}
+                className="flex-1 py-2.5 rounded-lg bg-accent text-white text-sm font-semibold disabled:opacity-50 hover:bg-green-600 transition-colors"
+              >
+                Confirm &amp; Notify
+              </button>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </section>
   );

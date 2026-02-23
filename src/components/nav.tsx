@@ -14,6 +14,13 @@ interface User {
   name: string;
   email: string;
   is_admin: number;
+  isImpersonating?: boolean;
+  realAdminName?: string;
+}
+
+interface PlayerOption {
+  id: string;
+  name: string;
 }
 
 function StatusDot({ status }: { status: string }) {
@@ -29,6 +36,10 @@ export function Nav() {
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [nav, setNav] = useState<NavData | null>(null);
+  const [players, setPlayers] = useState<PlayerOption[]>([]);
+  const [showImpersonate, setShowImpersonate] = useState(false);
+
+  const isRealAdmin = user && (user.isImpersonating || user.is_admin === 1);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -48,6 +59,27 @@ export function Nav() {
     window.location.href = "/login";
   }
 
+  async function handleImpersonate(playerId: string) {
+    await fetch("/api/admin/impersonate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerId }),
+    });
+    window.location.reload();
+  }
+
+  async function loadPlayers() {
+    if (players.length > 0) { setShowImpersonate(!showImpersonate); return; }
+    const res = await fetch("/api/admin/players");
+    if (res.ok) {
+      const data = (await res.json()) as { players: { id: string; name: string }[] };
+      setPlayers(data.players);
+      setShowImpersonate(true);
+    }
+  }
+
+  const firstName = user?.name?.split(" ")[0] ?? "";
+
   return (
     <header className="bg-primary text-white sticky top-0 z-50">
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
@@ -58,7 +90,7 @@ export function Nav() {
 
           <div className="flex items-center gap-3">
             {user && (
-              <span className="text-xs text-white/70 hidden sm:inline">{user.name}</span>
+              <span className="text-xs text-white/70">{firstName}</span>
             )}
             <button
               onClick={() => setOpen(!open)}
@@ -80,6 +112,33 @@ export function Nav() {
       {open && (
         <div className="border-t border-white/20 bg-primary-dark">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 space-y-4">
+            {/* Top links */}
+            <div className="space-y-1">
+              <Link
+                href="/dashboard"
+                onClick={() => setOpen(false)}
+                className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors font-semibold"
+              >
+                My Dashboard
+              </Link>
+              {user && (
+                <Link
+                  href={`/player/${user.player_id}`}
+                  onClick={() => setOpen(false)}
+                  className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+                >
+                  My Profile
+                </Link>
+              )}
+              <Link
+                href="/practice"
+                onClick={() => setOpen(false)}
+                className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                Practice
+              </Link>
+            </div>
+
             {nav && nav.teams.length > 0 && (
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wider text-white/60 mb-2">USTA Teams</p>
@@ -138,21 +197,35 @@ export function Nav() {
             )}
 
             <div className="border-t border-white/20 pt-3 space-y-1">
-              <Link
-                href="/dashboard"
-                onClick={() => setOpen(false)}
-                className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-              >
-                My Dashboard
-              </Link>
-              {user?.is_admin === 1 && (
-                <Link
-                  href="/admin"
-                  onClick={() => setOpen(false)}
-                  className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-                >
-                  Admin
-                </Link>
+              {isRealAdmin && (
+                <>
+                  <Link
+                    href="/admin"
+                    onClick={() => setOpen(false)}
+                    className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+                  >
+                    Admin
+                  </Link>
+                  <button
+                    onClick={loadPlayers}
+                    className="block w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 transition-colors text-white/80"
+                  >
+                    View as Player...
+                  </button>
+                  {showImpersonate && (
+                    <div className="ml-3 max-h-48 overflow-y-auto space-y-0.5 bg-white/5 rounded-lg p-2">
+                      {players.map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => handleImpersonate(p.id)}
+                          className="block w-full text-left px-2 py-1.5 rounded text-sm hover:bg-white/10 transition-colors"
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
               {user ? (
                 <button

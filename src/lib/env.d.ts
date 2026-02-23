@@ -7,6 +7,7 @@ declare global {
     RESEND_API_KEY?: string;
     VAPID_PUBLIC_KEY?: string;
     VAPID_PRIVATE_KEY?: string;
+    CRON_SECRET?: string;
   }
 }
 

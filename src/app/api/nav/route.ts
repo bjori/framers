@@ -7,11 +7,11 @@ export async function GET() {
   const teams = (
     await db
       .prepare(
-        `SELECT name, slug, status FROM teams
+        `SELECT id, name, slug, status FROM teams
          WHERE status IN ('active','upcoming')
          ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'upcoming' THEN 1 END, name`
       )
-      .all<{ name: string; slug: string; status: string }>()
+      .all<{ id: string; name: string; slug: string; status: string }>()
   ).results;
 
   const tournaments = (

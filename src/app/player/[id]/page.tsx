@@ -6,6 +6,7 @@ interface Player {
   id: string;
   name: string;
   email: string;
+  phone: string | null;
   ntrp_rating: number;
   ntrp_type: string;
   singles_elo: number;
@@ -83,6 +84,35 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
     };
   });
 
+  // League match results
+  const leagueResults = (
+    await db
+      .prepare(
+        `SELECT lmr.position, lmr.won, lmr.our_score, lmr.opp_score, lmr.is_default_win,
+                lm.match_date, lm.opponent_team, lm.id as match_id,
+                te.name as team_name, te.slug as team_slug,
+                p2.name as partner_name
+         FROM league_match_results lmr
+         JOIN league_matches lm ON lm.id = lmr.match_id
+         JOIN teams te ON te.id = lm.team_id
+         LEFT JOIN players p2 ON p2.id = CASE
+           WHEN lmr.player1_id = ? THEN lmr.player2_id
+           WHEN lmr.player2_id = ? THEN lmr.player1_id
+           ELSE NULL END
+         WHERE lmr.player1_id = ? OR lmr.player2_id = ?
+         ORDER BY lm.match_date DESC`
+      )
+      .bind(id, id, id, id)
+      .all<{
+        position: string; won: number | null; our_score: string | null; opp_score: string | null;
+        is_default_win: number; match_date: string; opponent_team: string; match_id: string;
+        team_name: string; team_slug: string; partner_name: string | null;
+      }>()
+  ).results;
+
+  const leagueWins = leagueResults.filter((r) => r.won === 1).length;
+  const leagueLosses = leagueResults.filter((r) => r.won === 0).length;
+
   const teamMemberships = (
     await db
       .prepare(
@@ -98,6 +128,9 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
 
   const wins = matches.filter((m) => m.won).length;
   const losses = matches.length - wins;
+  const totalWins = wins + leagueWins;
+  const totalLosses = losses + leagueLosses;
+  const totalMatches = totalWins + totalLosses;
 
   const eloHistory = (
     await db
@@ -123,6 +156,18 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
           NTRP {player.ntrp_type}
           {player.is_admin ? " · Admin" : ""}
         </p>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm">
+          <a href={`mailto:${player.email}`} className="text-sky-700 dark:text-sky-400 hover:underline flex items-center gap-1">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+            {player.email}
+          </a>
+          {player.phone && (
+            <a href={`tel:${player.phone}`} className="text-sky-700 dark:text-sky-400 hover:underline flex items-center gap-1">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+              {player.phone}
+            </a>
+          )}
+        </div>
       </div>
 
       {/* ELO Ratings */}
@@ -151,20 +196,26 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
       <div className="bg-surface-alt rounded-xl border border-border p-4">
         <div className="flex items-center gap-6">
           <div>
-            <p className="text-xs uppercase font-semibold text-slate-500">Record</p>
-            <p className="text-xl font-bold">{wins}-{losses}</p>
+            <p className="text-xs uppercase font-semibold text-slate-500">Overall Record</p>
+            <p className="text-xl font-bold">{totalWins}-{totalLosses}</p>
           </div>
           <div>
             <p className="text-xs uppercase font-semibold text-slate-500">Win Rate</p>
             <p className="text-xl font-bold">
-              {matches.length > 0 ? Math.round((wins / matches.length) * 100) : 0}%
+              {totalMatches > 0 ? Math.round((totalWins / totalMatches) * 100) : 0}%
             </p>
           </div>
           <div>
             <p className="text-xs uppercase font-semibold text-slate-500">Matches</p>
-            <p className="text-xl font-bold">{matches.length}</p>
+            <p className="text-xl font-bold">{totalMatches}</p>
           </div>
         </div>
+        {(wins > 0 || losses > 0) && (leagueWins > 0 || leagueLosses > 0) && (
+          <div className="flex gap-4 mt-2 text-xs text-slate-400 border-t border-border pt-2">
+            <span>Tournament: {wins}-{losses}</span>
+            <span>League: {leagueWins}-{leagueLosses}</span>
+          </div>
+        )}
       </div>
 
       {/* Teams */}
@@ -188,7 +239,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
                     t.status === "upcoming" ? "bg-warning/10 text-warning" :
                     "bg-slate-200 dark:bg-slate-700 text-slate-500"
                   }`}>
-                    {t.role === "captain" ? "Captain" : t.season_year}
+                    {t.role === "captain" ? "Captain" : t.role === "co-captain" ? "Co-Captain" : t.season_year}
                   </span>
                 </div>
               </Link>
@@ -197,10 +248,45 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
         </section>
       )}
 
-      {/* Match History */}
+      {/* League Match History */}
+      {leagueResults.length > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold mb-3">League Matches</h2>
+          <div className="bg-surface-alt rounded-xl border border-border overflow-hidden divide-y divide-border">
+            {leagueResults.map((r, i) => (
+              <Link
+                key={i}
+                href={`/team/${r.team_slug}/match/${r.match_id}`}
+                className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-1.5 h-1.5 rounded-full ${r.won ? "bg-accent" : "bg-danger"}`} />
+                    <span className="font-medium text-sm">
+                      {r.position} vs {r.opponent_team}
+                      {r.is_default_win ? " (Default)" : ""}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 ml-3.5">
+                    {r.partner_name ? `w/ ${r.partner_name} · ` : ""}{r.our_score} - {r.opp_score}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-slate-500">
+                    {new Date(r.match_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  </p>
+                  <p className="text-[10px] text-slate-400">{r.team_name}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Tournament Match History */}
       {matches.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold mb-3">Match History</h2>
+          <h2 className="text-lg font-semibold mb-3">Tournament Matches</h2>
           <div className="bg-surface-alt rounded-xl border border-border overflow-hidden divide-y divide-border">
             {matches.map((m) => (
               <Link

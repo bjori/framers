@@ -2,15 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { optimizeLineup, type AvailablePlayer } from "@/lib/lineup-optimizer";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, emailTemplate } from "@/lib/email";
+import { transitionMatch } from "@/lib/match-lifecycle";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const session = await getSession();
-  if (!session || session.is_admin !== 1) {
-    return NextResponse.json({ error: "Admin/captain only" }, { status: 403 });
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { slug } = await params;
@@ -20,6 +21,15 @@ export async function POST(
   const team = await db.prepare("SELECT * FROM teams WHERE slug = ?").bind(slug)
     .first<{ id: string; match_format: string; min_matches_goal: number }>();
   if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
+
+  const isAdmin = session.is_admin === 1;
+  const membership = await db.prepare(
+    "SELECT role FROM team_memberships WHERE team_id = ? AND player_id = ?"
+  ).bind(team.id, session.player_id).first<{ role: string }>();
+  const isCaptain = membership?.role === "captain" || membership?.role === "co-captain";
+  if (!isAdmin && !isCaptain) {
+    return NextResponse.json({ error: "Admin/captain only" }, { status: 403 });
+  }
 
   const match = await db.prepare("SELECT * FROM league_matches WHERE id = ? AND team_id = ?")
     .bind(body.matchId, team.id)
@@ -39,6 +49,10 @@ export async function POST(
                    JOIN lineups l ON l.id = ls.lineup_id
                    JOIN league_matches lm ON lm.id = l.match_id
                    WHERE ls.player_id = p.id AND lm.team_id = ?) as matchesPlayed,
+                  (SELECT count(*) FROM league_match_results lmr
+                   JOIN league_matches lm2 ON lm2.id = lmr.match_id
+                   WHERE (lmr.player1_id = p.id OR lmr.player2_id = p.id)
+                     AND lm2.team_id = ? AND lmr.is_default_win = 1) as defaultWins,
                   COALESCE(tm2.preferences, '{}') as preferences
            FROM team_memberships tm2
            JOIN players p ON p.id = tm2.player_id
@@ -46,11 +60,11 @@ export async function POST(
            WHERE tm2.team_id = ? AND tm2.active = 1
              AND (a.status IS NULL OR a.status != 'no')`
         )
-        .bind(team.id, body.matchId, team.id)
+        .bind(team.id, team.id, body.matchId, team.id)
         .all<{
           id: string; name: string; singlesElo: number; doublesElo: number;
           rsvp_status: string | null; is_before_deadline: number;
-          reliability_score: number; matchesPlayed: number; preferences: string;
+          reliability_score: number; matchesPlayed: number; defaultWins: number; preferences: string;
         }>()
     ).results;
 
@@ -67,6 +81,7 @@ export async function POST(
         singlesElo: p.singlesElo,
         doublesElo: p.doublesElo,
         matchesPlayedThisSeason: p.matchesPlayed,
+        defaultWinsThisSeason: p.defaultWins,
         minMatchesGoal: team.min_matches_goal,
         preferences: { doublesOnly: prefs.doublesOnly },
         rsvpStatus,
@@ -105,6 +120,8 @@ export async function POST(
     );
 
     if (body.action === "confirm") {
+      await transitionMatch(body.matchId, "lineup_confirmed", { id: session.player_id, name: session.name });
+
       const matchInfo = await db.prepare(
         "SELECT opponent_team, match_date, is_home FROM league_matches WHERE id = ?"
       ).bind(body.matchId).first<{ opponent_team: string; match_date: string; is_home: number }>();
@@ -130,15 +147,21 @@ export async function POST(
           await sendEmail({
             to: p.email,
             subject: `Lineup confirmed: ${matchInfo.opponent_team} on ${dateStr}`,
-            html: `
-              <h2>You're playing, ${p.name.split(" ")[0]}!</h2>
-              <p>The lineup for ${matchInfo.opponent_team} on <strong>${dateStr}</strong> (${matchInfo.is_home ? "Home" : "Away"}) has been confirmed.</p>
-              <p>Your position(s): <strong>${myPositions}</strong></p>
-              <h3>Full Lineup:</h3>
-              <ul>${lineupHtml}</ul>
-              <p><a href="https://framers.app/team/${slug}/match/${body.matchId}" style="display:inline-block;padding:12px 24px;background:#0c4a6e;color:white;text-decoration:none;border-radius:8px;font-weight:bold;">View Match Details</a></p>
-              <p>Good luck!<br>Greenbrook Framers</p>
-            `,
+            html: emailTemplate(
+              `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">You're playing, ${p.name.split(" ")[0]}!</h2>
+               <p>The lineup for <strong>${matchInfo.opponent_team}</strong> on <strong>${dateStr}</strong> (${matchInfo.is_home ? "Home" : "Away"}) has been confirmed.</p>
+               <p style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; font-weight: 600; color: #166534;">
+                 Your position: ${myPositions}
+               </p>
+               <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0;">Full Lineup</h3>
+               <ul style="padding-left: 20px; color: #334155;">${lineupHtml}</ul>
+               <p style="margin-top: 16px;">Good luck! &#127934;</p>`,
+              {
+                heading: "Lineup Confirmed",
+                ctaUrl: `https://framers.app/team/${slug}/match/${body.matchId}`,
+                ctaLabel: "View Match Details",
+              }
+            ),
           });
         }
       }

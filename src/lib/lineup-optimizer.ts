@@ -11,6 +11,7 @@ export interface AvailablePlayer {
   singlesElo: number;
   doublesElo: number;
   matchesPlayedThisSeason: number;
+  defaultWinsThisSeason: number;
   minMatchesGoal: number;
   preferences: { doublesOnly?: boolean };
   rsvpStatus: "yes" | "maybe" | "call_last" | "doubles_only";
@@ -41,9 +42,14 @@ function rsvpPriority(p: AvailablePlayer): number {
   if (p.rsvpBeforeDeadline) score += 25;
   score += p.reliabilityScore * 10;
 
-  // Fairness: prioritize players who need more matches
-  const matchDeficit = Math.max(0, p.minMatchesGoal - p.matchesPlayedThisSeason);
+  // Fairness: prioritize players who need more real matches
+  // Default wins count officially but don't give real playing time
+  const realMatchesPlayed = p.matchesPlayedThisSeason - p.defaultWinsThisSeason;
+  const matchDeficit = Math.max(0, p.minMatchesGoal - realMatchesPlayed);
   score += matchDeficit * 15;
+
+  // Extra boost for players with default wins who didn't actually play
+  if (p.defaultWinsThisSeason > 0) score += p.defaultWinsThisSeason * 10;
 
   return score;
 }
@@ -62,12 +68,17 @@ export function optimizeLineup(
   const assigned = new Set<string>();
 
   // Singles slots: highest singles ELO among non-doubles-only players
+  // If not enough singles-willing players, fall back to doubles-preferred players
   const singlesEligible = sorted.filter(
     (p) => !p.preferences.doublesOnly && p.rsvpStatus !== "doubles_only" && !assigned.has(p.id)
   );
 
   for (let i = 0; i < format.singles; i++) {
-    const candidate = singlesEligible.find((p) => !assigned.has(p.id));
+    let candidate = singlesEligible.find((p) => !assigned.has(p.id));
+    if (!candidate) {
+      // Fallback: pick from doubles-preferred players (better than forfeiting a line)
+      candidate = sorted.find((p) => !assigned.has(p.id));
+    }
     if (candidate) {
       slots.push({
         position: `S${i + 1}`,

@@ -22,6 +22,10 @@ interface TournamentMatch {
   p2_name: string;
   p1_player_id: string;
   p2_player_id: string;
+  p1_email?: string;
+  p1_phone?: string | null;
+  p2_email?: string;
+  p2_phone?: string | null;
 }
 
 interface Standing {
@@ -108,42 +112,62 @@ export default async function TournamentPage({ params }: { params: Promise<{ slu
   const tournament = await db
     .prepare("SELECT * FROM tournaments WHERE slug = ?")
     .bind(slug)
-    .first<{ id: string; name: string; slug: string; format: string; status: string; start_date: string; end_date: string }>();
+    .first<{ id: string; name: string; slug: string; format: string; match_type: string; status: string; start_date: string; end_date: string }>();
 
   if (!tournament) notFound();
+
+  const isDoubles = tournament.match_type === "doubles";
 
   const participants = (
     await db
       .prepare(
-        `SELECT tp.id, tp.player_id, p.name, p.singles_elo
+        `SELECT tp.id, tp.player_id, p.name, p.singles_elo, p.doubles_elo,
+                tp.partner_id, p2.name as partner_name
          FROM tournament_participants tp
          JOIN players p ON p.id = tp.player_id
+         LEFT JOIN players p2 ON p2.id = tp.partner_id
          WHERE tp.tournament_id = ?
          ORDER BY p.name`
       )
       .bind(tournament.id)
-      .all<{ id: string; player_id: string; name: string; singles_elo: number }>()
+      .all<{ id: string; player_id: string; name: string; singles_elo: number; doubles_elo: number; partner_id: string | null; partner_name: string | null }>()
   ).results;
 
-  const matches = (
+  const rawMatches = (
     await db
       .prepare(
         `SELECT tm.*,
                 p1.name as p1_name, tp1.player_id as p1_player_id,
-                p2.name as p2_name, tp2.player_id as p2_player_id
+                p1.email as p1_email, p1.phone as p1_phone,
+                p2.name as p2_name, tp2.player_id as p2_player_id,
+                p2.email as p2_email, p2.phone as p2_phone,
+                p1partner.name as p1_partner_name, p2partner.name as p2_partner_name
          FROM tournament_matches tm
          LEFT JOIN tournament_participants tp1 ON tp1.id = tm.participant1_id
          LEFT JOIN players p1 ON p1.id = tp1.player_id
+         LEFT JOIN players p1partner ON p1partner.id = tp1.partner_id
          LEFT JOIN tournament_participants tp2 ON tp2.id = tm.participant2_id
          LEFT JOIN players p2 ON p2.id = tp2.player_id
+         LEFT JOIN players p2partner ON p2partner.id = tp2.partner_id
          WHERE tm.tournament_id = ?
          ORDER BY tm.week ASC, tm.scheduled_date ASC, tm.scheduled_time ASC`
       )
       .bind(tournament.id)
-      .all<TournamentMatch>()
+      .all<TournamentMatch & { p1_partner_name: string | null; p2_partner_name: string | null; p1_email: string; p1_phone: string | null; p2_email: string; p2_phone: string | null }>()
   ).results;
 
-  const standings = computeStandings(matches, participants);
+  const matches: TournamentMatch[] = rawMatches.map((m) => ({
+    ...m,
+    p1_name: m.p1_partner_name ? `${m.p1_name} / ${m.p1_partner_name}` : m.p1_name,
+    p2_name: m.p2_partner_name ? `${m.p2_name} / ${m.p2_partner_name}` : m.p2_name,
+  }));
+
+  const standingsParticipants = participants.map((p) => ({
+    ...p,
+    name: p.partner_name ? `${p.name} / ${p.partner_name}` : p.name,
+    singles_elo: isDoubles ? p.doubles_elo : p.singles_elo,
+  }));
+  const standings = computeStandings(matches, standingsParticipants);
 
   const completedCount = matches.filter((m: TournamentMatch) => m.status === "completed").length;
   const totalCount = matches.filter((m: TournamentMatch) => !m.bye).length;
@@ -153,11 +177,11 @@ export default async function TournamentPage({ params }: { params: Promise<{ slu
       <div>
         <h1 className="text-2xl font-bold">{tournament.name}</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          {tournament.format.replace("_", " ")} &middot; {completedCount}/{totalCount} matches completed
+          {tournament.format.replace("_", " ")} &middot; {tournament.match_type} &middot; {completedCount}/{totalCount} matches completed
         </p>
       </div>
 
-      <TournamentStandings standings={standings} />
+      <TournamentStandings standings={standings} isDoubles={isDoubles} />
       <TournamentSchedule matches={matches} slug={slug} />
     </div>
   );

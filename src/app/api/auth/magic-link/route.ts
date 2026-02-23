@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateMagicToken } from "@/lib/auth";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, emailTemplate } from "@/lib/email";
+import { track } from "@/lib/analytics";
 
 export async function POST(request: NextRequest) {
   const { email } = (await request.json()) as { email?: string };
@@ -8,8 +9,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });
   }
 
+  const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || undefined;
   const token = await generateMagicToken(email);
   if (!token) {
+    await track("login_failed", { detail: email, ip });
     return NextResponse.json({ ok: true });
   }
 
@@ -19,17 +22,17 @@ export async function POST(request: NextRequest) {
   await sendEmail({
     to: email,
     subject: "Sign in to Greenbrook Framers",
-    html: `
-      <div style="font-family: -apple-system, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
-        <h2 style="color: #0c4a6e;">Sign in to Greenbrook Framers</h2>
-        <p>Click the button below to sign in. This link expires in 10 minutes.</p>
-        <a href="${verifyUrl}" style="display: inline-block; background: #0c4a6e; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 16px 0;">
-          Sign In
-        </a>
-        <p style="color: #666; font-size: 14px;">If you didn't request this, you can safely ignore this email.</p>
-      </div>
-    `,
+    html: emailTemplate(
+      `<p>Click the button below to sign in. This link expires in 10 minutes.</p>`,
+      {
+        heading: "Sign In",
+        ctaUrl: verifyUrl,
+        ctaLabel: "Sign In to Framers",
+        footerNote: "If you didn't request this, you can safely ignore this email.",
+      }
+    ),
   });
 
+  await track("login_requested", { detail: email, ip });
   return NextResponse.json({ ok: true });
 }
