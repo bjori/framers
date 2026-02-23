@@ -49,6 +49,11 @@ const EVENT_LABELS: Record<string, string> = {
   score_submitted: "Score Submitted",
   email_sent: "Email Sent",
   email_failed: "Email Failed",
+  "email.delivered": "Delivered",
+  "email.opened": "Opened",
+  "email.clicked": "Clicked",
+  "email.bounced": "Bounced",
+  "email.complained": "Spam Report",
 };
 
 const EVENT_COLORS: Record<string, string> = {
@@ -61,6 +66,11 @@ const EVENT_COLORS: Record<string, string> = {
   score_submitted: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
   email_sent: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   email_failed: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+  "email.delivered": "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300",
+  "email.opened": "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300",
+  "email.clicked": "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-300",
+  "email.bounced": "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+  "email.complained": "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
 };
 
 function EventBadge({ event }: { event: string }) {
@@ -74,7 +84,7 @@ function EventBadge({ event }: { event: string }) {
 }
 
 function relTime(iso: string) {
-  const diff = Date.now() - new Date(iso + "Z").getTime();
+  const diff = Date.now() - new Date(iso.endsWith("Z") ? iso : iso + "Z").getTime();
   const m = Math.floor(diff / 60000);
   if (m < 1) return "just now";
   if (m < 60) return `${m}m ago`;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { sendEmail, emailTemplate } from "@/lib/email";
+import { sendEmail, sendEmailBatch, emailTemplate } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -76,18 +76,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, sent: 1, total: members.length, failed: [], testOnly: true });
   }
 
-  let sentCount = 0;
-  const failed: string[] = [];
-
-  for (const member of members) {
-    const ok = await sendEmail({
-      to: member.email,
-      subject: `[${team.name}] ${body.subject}`,
-      html: bodyHtml,
-    });
-    if (ok) sentCount++;
-    else failed.push(member.email);
-  }
+  const batch = members.map((member) => ({
+    to: member.email,
+    subject: `[${team.name}] ${body.subject}`,
+    html: bodyHtml,
+  }));
+  const batchResult = await sendEmailBatch(batch);
+  const sentCount = batchResult.sent;
+  const failed = batchResult.failed;
 
   const announcementId = crypto.randomUUID();
   await db

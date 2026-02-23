@@ -24,6 +24,12 @@ interface RsvpCounts {
   [matchId: string]: { yes: number; maybe: number; no: number };
 }
 
+function fmtTime(t: string) {
+  const [h, m] = t.split(":").map(Number);
+  const ampm = h >= 12 ? "PM" : "AM";
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
 export function TeamSchedule({ matches, isReadOnly, slug }: { matches: LeagueMatch[]; isReadOnly: boolean; slug: string }) {
   const [myRsvp, setMyRsvp] = useState<RsvpStatus>({});
   const [counts, setCounts] = useState<RsvpCounts>({});
@@ -106,7 +112,7 @@ export function TeamSchedule({ matches, isReadOnly, slug }: { matches: LeagueMat
                     </div>
                     <p className="text-xs text-slate-500 mt-1">
                       {new Date(m.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                      {m.match_time ? ` at ${m.match_time}` : ""}
+                      {m.match_time ? ` · ${fmtTime(m.match_time)}` : ""}
                       {m.location ? ` · ${m.location}` : ""}
                     </p>
                   </div>

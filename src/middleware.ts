@@ -17,6 +17,7 @@ const PUBLIC_PATHS = [
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.includes(pathname)) return true;
   if (pathname.startsWith("/api/ics/")) return true;
+  if (pathname.startsWith("/api/webhooks/")) return true;
   if (pathname.startsWith("/join/")) return true;
   if (pathname.startsWith("/api/team/") && pathname.endsWith("/interest")) return true;
   if (pathname.startsWith("/api/team/") && pathname.endsWith("/info")) return true;

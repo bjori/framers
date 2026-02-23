@@ -31,10 +31,14 @@ export async function GET(_request: NextRequest, { params }: Params) {
   }
 
   const cal = ical({
-    name: `Greenbrook Framers - ${player.name}`,
+    name: "Framers",
     prodId: { company: "Greenbrook Framers", product: "Calendar Feed" },
     method: ICalCalendarMethod.PUBLISH,
     timezone: TZ,
+    x: [
+      { key: "X-WR-CALNAME", value: "Framers" },
+      { key: "X-WR-TIMEZONE", value: TZ },
+    ],
   });
 
   // League matches

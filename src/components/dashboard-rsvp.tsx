@@ -19,7 +19,7 @@ export function DashboardRsvp({ slug, matchId }: { slug: string; matchId: string
 
   if (status) {
     return (
-      <div className={`flex items-center justify-center rounded-r-lg px-4 self-stretch -my-3 -mr-3 text-xs font-bold text-white ${
+      <div className={`flex items-center justify-center rounded-r-lg px-5 self-stretch text-xs font-bold text-white ${
         status === "yes" ? "bg-accent" : "bg-danger"
       }`}>
         {status === "yes" ? "In" : "Out"}
@@ -28,18 +28,18 @@ export function DashboardRsvp({ slug, matchId }: { slug: string; matchId: string
   }
 
   return (
-    <div className="flex self-stretch -my-3 -mr-3 shrink-0" onClick={(e) => e.preventDefault()}>
+    <div className="flex self-stretch shrink-0" onClick={(e) => e.preventDefault()}>
       <button
         onClick={() => rsvp("yes")}
         disabled={submitting}
-        className="px-4 flex items-center justify-center text-xs font-bold bg-accent/10 text-accent hover:bg-accent hover:text-white transition-colors disabled:opacity-50 border-l border-slate-200 dark:border-slate-700"
+        className="px-5 flex items-center justify-center text-xs font-bold bg-accent/10 text-accent hover:bg-accent hover:text-white transition-colors disabled:opacity-50 border-l border-slate-200 dark:border-slate-700"
       >
         {submitting ? "…" : "In"}
       </button>
       <button
         onClick={() => rsvp("no")}
         disabled={submitting}
-        className="px-4 flex items-center justify-center rounded-r-lg text-xs font-bold bg-danger/10 text-danger hover:bg-danger hover:text-white transition-colors disabled:opacity-50 border-l border-slate-200 dark:border-slate-700"
+        className="px-5 flex items-center justify-center rounded-r-lg text-xs font-bold bg-danger/10 text-danger hover:bg-danger hover:text-white transition-colors disabled:opacity-50 border-l border-slate-200 dark:border-slate-700"
       >
         {submitting ? "…" : "Out"}
       </button>
@@ -78,7 +78,7 @@ export function DashboardPracticeRsvp({
 
   if (status) {
     return (
-      <div className={`flex items-center justify-center rounded-r-lg px-4 self-stretch -my-3 -mr-3 text-xs font-bold text-white ${
+      <div className={`flex items-center justify-center rounded-r-lg px-5 self-stretch text-xs font-bold text-white ${
         status === "yes" ? "bg-accent" : "bg-danger"
       }`}>
         {status === "yes" ? "In" : "Out"}
@@ -87,18 +87,18 @@ export function DashboardPracticeRsvp({
   }
 
   return (
-    <div className="flex self-stretch -my-3 -mr-3 shrink-0" onClick={(e) => e.preventDefault()}>
+    <div className="flex self-stretch shrink-0" onClick={(e) => e.preventDefault()}>
       <button
         onClick={() => rsvp("yes")}
         disabled={submitting}
-        className="px-4 flex items-center justify-center text-xs font-bold bg-accent/10 text-accent hover:bg-accent hover:text-white transition-colors disabled:opacity-50 border-l border-slate-200 dark:border-slate-700"
+        className="px-5 flex items-center justify-center text-xs font-bold bg-accent/10 text-accent hover:bg-accent hover:text-white transition-colors disabled:opacity-50 border-l border-slate-200 dark:border-slate-700"
       >
         {submitting ? "…" : "In"}
       </button>
       <button
         onClick={() => rsvp("no")}
         disabled={submitting}
-        className="px-4 flex items-center justify-center rounded-r-lg text-xs font-bold bg-danger/10 text-danger hover:bg-danger hover:text-white transition-colors disabled:opacity-50 border-l border-slate-200 dark:border-slate-700"
+        className="px-5 flex items-center justify-center rounded-r-lg text-xs font-bold bg-danger/10 text-danger hover:bg-danger hover:text-white transition-colors disabled:opacity-50 border-l border-slate-200 dark:border-slate-700"
       >
         {submitting ? "…" : "Out"}
       </button>

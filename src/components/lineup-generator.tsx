@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 
 interface LineupSlot {
   position: string;
@@ -28,10 +28,6 @@ export function LineupGenerator({ slug, matchId }: { slug: string; matchId: stri
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dropTarget, setDropTarget] = useState<number | null>(null);
-  const touchStartY = useRef(0);
-  const touchSlotIdx = useRef<number | null>(null);
 
   async function generateLineup() {
     setLoading(true);
@@ -124,45 +120,6 @@ export function LineupGenerator({ slug, matchId }: { slug: string; matchId: stri
     }
   }
 
-  function handleDragStart(idx: number) {
-    setDragIdx(idx);
-    setSelectedIdx(null);
-  }
-
-  function handleDragOver(e: React.DragEvent, idx: number) {
-    e.preventDefault();
-    setDropTarget(idx);
-  }
-
-  function handleDrop(idx: number) {
-    if (dragIdx !== null && dragIdx !== idx) {
-      swapSlots(dragIdx, idx);
-    }
-    setDragIdx(null);
-    setDropTarget(null);
-  }
-
-  function handleDragEnd() {
-    setDragIdx(null);
-    setDropTarget(null);
-  }
-
-  function handleTouchStart(e: React.TouchEvent, idx: number) {
-    touchStartY.current = e.touches[0].clientY;
-    touchSlotIdx.current = idx;
-  }
-
-  function handleTouchEnd(e: React.TouchEvent, idx: number) {
-    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
-    if (Math.abs(deltaY) < 10) return; // tap, not drag
-    if (!lineup) return;
-    if (deltaY < -30 && idx > 0) {
-      swapSlots(idx, idx - 1);
-    } else if (deltaY > 30 && idx < lineup.slots.length - 1) {
-      swapSlots(idx, idx + 1);
-    }
-  }
-
   const positionLabels: Record<string, string> = {
     S1: "Singles 1", S2: "Singles 2",
     D1A: "Doubles 1", D1B: "Doubles 1",
@@ -203,11 +160,15 @@ export function LineupGenerator({ slug, matchId }: { slug: string; matchId: stri
 
       {lineup && (
         <>
-          {selectedIdx !== null && (
-            <p className="text-xs text-sky-600 dark:text-sky-400 animate-pulse">
-              Tap another position to swap, or tap a bench player to sub them in
-            </p>
-          )}
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {selectedIdx !== null ? (
+              <span className="text-sky-600 dark:text-sky-400 animate-pulse font-medium">
+                Tap another position to swap, or tap a bench player to sub in
+              </span>
+            ) : (
+              "Tap a player to select, then tap another to swap positions"
+            )}
+          </p>
 
           <div className="bg-surface-alt rounded-xl border border-border overflow-hidden">
             {groupedSlots().map((group) => (
@@ -219,53 +180,30 @@ export function LineupGenerator({ slug, matchId }: { slug: string; matchId: stri
                 </div>
                 {group.slots.map(({ slot, idx }) => {
                   const isSelected = selectedIdx === idx;
-                  const isDragging = dragIdx === idx;
-                  const isDropZone = dropTarget === idx && dragIdx !== null && dragIdx !== idx;
                   return (
                     <div
                       key={slot.position}
-                      draggable
-                      onDragStart={() => handleDragStart(idx)}
-                      onDragOver={(e) => handleDragOver(e, idx)}
-                      onDrop={() => handleDrop(idx)}
-                      onDragEnd={handleDragEnd}
-                      onTouchStart={(e) => handleTouchStart(e, idx)}
-                      onTouchEnd={(e) => handleTouchEnd(e, idx)}
                       onClick={() => handleSlotTap(idx)}
-                      className={`flex items-center justify-between px-4 py-3 cursor-pointer select-none transition-all border-b border-border last:border-b-0 ${
+                      className={`flex items-center justify-between px-4 py-3.5 cursor-pointer select-none transition-all border-b border-border last:border-b-0 ${
                         isSelected
                           ? "bg-sky-50 dark:bg-sky-900/30 ring-2 ring-inset ring-sky-400"
-                          : isDropZone
-                            ? "bg-sky-50/50 dark:bg-sky-900/20 border-sky-300"
-                            : isDragging
-                              ? "opacity-50"
-                              : "hover:bg-slate-50 dark:hover:bg-slate-800/50 active:bg-slate-100 dark:active:bg-slate-700/50"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/50 active:bg-slate-100 dark:active:bg-slate-700/50"
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="flex flex-col items-center w-6 text-slate-300 dark:text-slate-600 touch-none">
-                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                            <circle cx="8" cy="6" r="1.5" />
-                            <circle cx="16" cy="6" r="1.5" />
-                            <circle cx="8" cy="12" r="1.5" />
-                            <circle cx="16" cy="12" r="1.5" />
-                            <circle cx="8" cy="18" r="1.5" />
-                            <circle cx="16" cy="18" r="1.5" />
-                          </svg>
-                        </div>
                         <span className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 w-8">
                           {slot.position}
                         </span>
-                        <span className="font-medium text-sm text-slate-900 dark:text-white">
+                        <span className={`font-medium text-sm ${isSelected ? "text-sky-700 dark:text-sky-300" : "text-slate-900 dark:text-white"}`}>
                           {slot.playerName}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <span className="text-xs text-slate-400 font-mono">{slot.score}</span>
                         {idx > 0 && (
                           <button
                             onClick={(e) => { e.stopPropagation(); swapSlots(idx, idx - 1); }}
-                            className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200 active:bg-slate-300 dark:active:bg-slate-600 transition-colors"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -275,7 +213,7 @@ export function LineupGenerator({ slug, matchId }: { slug: string; matchId: stri
                         {lineup && idx < lineup.slots.length - 1 && (
                           <button
                             onClick={(e) => { e.stopPropagation(); swapSlots(idx, idx + 1); }}
-                            className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200 active:bg-slate-300 dark:active:bg-slate-600 transition-colors"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -303,14 +241,13 @@ export function LineupGenerator({ slug, matchId }: { slug: string; matchId: stri
                     onClick={() => {
                       if (selectedIdx !== null) subInAlternate(a, selectedIdx);
                     }}
-                    className={`flex items-center justify-between px-4 py-3 border-b border-border last:border-b-0 transition-colors ${
+                    className={`flex items-center justify-between px-4 py-3.5 border-b border-border last:border-b-0 transition-colors ${
                       selectedIdx !== null
                         ? "cursor-pointer hover:bg-sky-50 dark:hover:bg-sky-900/20 active:bg-sky-100 dark:active:bg-sky-900/40"
-                        : ""
+                        : "opacity-60"
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-6" />
                       <span className="w-8" />
                       <span className="text-sm text-slate-600 dark:text-slate-300">{a.name}</span>
                     </div>

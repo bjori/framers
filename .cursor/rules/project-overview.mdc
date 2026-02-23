@@ -1,0 +1,44 @@
+---
+description: Greenbrook Framers project architecture and conventions — always loaded for context
+alwaysApply: true
+---
+
+# Greenbrook Framers
+
+Tennis community platform at **framers.app** for the Greenbrook HOA (San Ramon, CA).
+Manages USTA league teams, internal tournaments, practices, ELO ratings, and payments.
+
+## Stack
+
+- **Framework**: Next.js 15 (App Router, TypeScript, React 18, Tailwind CSS v4)
+- **Hosting**: Cloudflare Workers via `@opennextjs/cloudflare`
+- **Database**: Cloudflare D1 (SQLite) — database name `framers-v2`
+- **Cache/Sessions**: Cloudflare KV
+- **Email**: Resend API (sender: `captain@framers.app`, BCC all to `hannes.magnusson@gmail.com`)
+- **Cron**: Separate `framers-cron` Cloudflare Worker triggers `/api/cron` daily at 9 AM Pacific
+- **Domain**: `framers.app` — Cloudflare DNS + custom domain on worker
+
+## Deployment
+
+```bash
+npx opennextjs-cloudflare build    # builds to .open-next/
+npx wrangler deploy .open-next/worker.js   # deploys to greenbrook-framers worker
+```
+Do NOT use `--name` flag with `wrangler deploy` — it must use `wrangler.jsonc` config.
+Secrets are managed via `npx wrangler secret put SECRET_NAME --name greenbrook-framers`.
+
+## Key Conventions
+
+- **DB access**: Always `const db = await getDB()` from `@/lib/db`
+- **Auth**: `getSession()` from `@/lib/auth` returns `{ player_id, name, email, is_admin, ... } | null`
+- **Emails**: Use `sendEmailBatch()` for bulk, `sendEmail()` for single. Always wrap content in `emailTemplate()`
+- **Analytics**: `track(event, { detail })` from `@/lib/analytics` — fire-and-forget, never throws
+- **Cron dedup**: Use `app_events` table to prevent duplicate notifications (check before sending)
+- **Admin**: Hannes Magnusson is primary admin. Matt McCabe is co-captain for Senior Framers team
+- **Impersonation**: Admins can view-as-user via `framers_impersonate` cookie
+
+## Roles
+
+- `is_admin = 1` on players table → global admin
+- `role = 'captain' | 'co-captain' | 'player'` on team_memberships → team-scoped
+- Co-captains can manage lineups, scheduling, payments, RSVPs for their team

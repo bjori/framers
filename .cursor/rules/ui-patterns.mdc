@@ -1,0 +1,49 @@
+---
+description: React component and UI conventions
+globs: "**/*.tsx"
+alwaysApply: false
+---
+
+# UI Patterns
+
+## Component Structure
+
+- **Server components** (default): Pages in `src/app/`, fetch data via D1 directly
+- **Client components** (`"use client"`): Interactive pieces in `src/components/`, use `fetch()` to API routes
+- Keep client components small and focused; pass data from server parents
+
+## Styling
+
+- Tailwind CSS v4 with custom theme variables defined in `src/app/globals.css`
+- Use semantic classes: `bg-surface`, `bg-surface-alt`, `text-foreground`, `border-border`, `bg-primary`
+- Dark mode: use `dark:` prefix. Avoid hardcoded colors — use CSS variables
+- Cards: `bg-surface-alt rounded-xl border border-border p-4`
+- Ensure color contrast in both light and dark modes
+
+## Common Patterns
+
+```tsx
+// Client component with API call
+"use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+export function MyComponent({ data }) {
+  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+
+  async function handleAction() {
+    setSaving(true);
+    const res = await fetch("/api/...", { method: "POST", ... });
+    if (res.ok) router.refresh(); // revalidate server data
+    setSaving(false);
+  }
+}
+```
+
+## Mobile-First
+
+The app is primarily used on phones. Ensure all interactions work on touch:
+- Buttons need adequate tap targets (min 44px)
+- No drag-and-drop (conflicts with scroll) — use tap-to-select patterns
+- Test layouts at 375px width

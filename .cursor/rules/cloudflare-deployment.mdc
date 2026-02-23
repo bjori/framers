@@ -1,0 +1,48 @@
+---
+description: Cloudflare deployment and infrastructure details
+globs: wrangler.jsonc,src/lib/env.d.ts
+alwaysApply: false
+---
+
+# Cloudflare Infrastructure
+
+## Workers
+
+| Worker | Purpose | Trigger |
+|--------|---------|---------|
+| `greenbrook-framers` | Main app (Next.js) | Custom domain `framers.app` |
+| `framers-cron` | Calls `/api/cron` | Cron: `0 17 * * *` (9 AM Pacific) |
+
+## Secrets (on `greenbrook-framers`)
+
+- `RESEND_API_KEY` — Resend email API key
+- `RESEND_WEBHOOK_SECRET` — Svix signing secret for webhook verification
+- `CRON_SECRET` — shared secret between cron worker and `/api/cron` endpoint
+
+`CRON_SECRET` is also set on `framers-cron` worker.
+
+## Bindings (in `wrangler.jsonc`)
+
+- `DB` → D1 database `framers-v2` (id: `8d8cf8ea-3c1b-4019-99d6-64ccf8f71606`)
+- `KV` → KV namespace (id: `75842b756f0042a69679be47b6df588b`)
+- `ASSETS` → static assets from `.open-next/assets`
+- `WORKER_SELF_REFERENCE` → self-referencing service binding
+
+## CloudflareEnv Types
+
+Defined in `src/lib/env.d.ts`. Add new secrets/bindings here to fix TypeScript errors.
+
+## Build & Deploy
+
+```bash
+npx opennextjs-cloudflare build          # Next.js → Cloudflare worker bundle
+npx wrangler deploy .open-next/worker.js # deploy (reads wrangler.jsonc)
+```
+
+Never use `--name` flag — it ignores `wrangler.jsonc` and creates a new worker without secrets.
+
+## D1 Queries from CLI
+
+```bash
+npx wrangler d1 execute framers-v2 --remote --command "SELECT ..."
+```

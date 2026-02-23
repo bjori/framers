@@ -1,0 +1,45 @@
+---
+description: D1 database schema and query patterns
+globs: "**/*.ts"
+alwaysApply: false
+---
+
+# Database Schema (D1 / SQLite)
+
+Schema lives in `src/app/api/setup/route.ts` as `SCHEMA_STATEMENTS`. Run `/api/setup` to apply.
+
+## Core Tables
+
+| Table | Purpose | Key columns |
+|-------|---------|-------------|
+| `players` | All users | `id, name, email, phone, ntrp_rating, singles_elo, doubles_elo, reliability_score, is_admin, ics_token` |
+| `teams` | USTA league teams | `id, name, slug, usta_team_id, status` |
+| `team_memberships` | Player↔Team join | `player_id, team_id, role, preferences (JSON), active` |
+| `league_matches` | USTA match schedule | `id, team_id, opponent_team, match_date, match_time, location, notes, status` |
+| `availability` | RSVP for league matches | `player_id, match_id, status (yes/no/maybe/pending)` |
+| `lineups` | Generated lineups | `id, match_id, status (draft/confirmed/locked)` |
+| `lineup_slots` | Positions in a lineup | `id, lineup_id, position (D1A/D1B/S1/etc), player_id, is_alternate, acknowledged` |
+| `league_match_results` | Per-line results | `match_id, position, won, our_score, opp_score, player1_id, player2_id, is_default_win` |
+| `tournaments` | Tournament definitions | `id, name, slug, format, match_type (singles/doubles)` |
+| `tournament_participants` | Enrolled players | `tournament_id, player_id, partner_id (doubles)` |
+| `tournament_matches` | Round-robin matches | `id, tournament_id, round, week, participant1_id, participant2_id, score1_sets, score2_sets, winner_participant_id, scheduled_date, is_forfeit` |
+| `practice_sessions` | Weekly practices | `id, team_id, session_date, start_time, end_time` |
+| `practice_rsvp` | Practice attendance | `player_id, session_id, status` |
+| `fees` / `payments` | Financial tracking | Fees per context (team/tournament), payments per player |
+| `app_events` | Analytics + dedup | `event, player_id, detail, ip, created_at` |
+| `sessions` | Auth sessions | `token, player_id, expires_at` |
+
+## Query Patterns
+
+```typescript
+const db = await getDB();
+// Single row
+const player = await db.prepare("SELECT * FROM players WHERE id = ?").bind(id).first<Player>();
+// Multiple rows
+const { results } = await db.prepare("SELECT ...").bind(...).all<T>();
+// Write
+await db.prepare("INSERT INTO ...").bind(...).run();
+```
+
+Scores are stored as JSON arrays: `score1_sets = "[6,4]"`, `score2_sets = "[3,6]"`.
+Preferences are JSON: `preferences = '{"doubles_only": true}'`.

@@ -1,0 +1,45 @@
+---
+description: Email sending rules and conventions
+globs: src/lib/email.ts,src/app/api/**/*.ts
+alwaysApply: false
+---
+
+# Email Conventions
+
+## Sending
+
+- **Single email**: `sendEmail({ to, subject, html })`
+- **Bulk (2+)**: Always use `sendEmailBatch(emails[])` — Resend Batch API, max 100 per call
+- Never loop `sendEmail()` — Resend rate-limits at 2/sec
+
+## Template
+
+All outbound email must use `emailTemplate(innerHtml, options)`:
+
+```typescript
+emailTemplate(
+  `<p>Hey ${firstName},</p><p>Your match is tomorrow.</p>`,
+  {
+    heading: "Senior Framers",           // top banner text
+    ctaUrl: "https://framers.app/...",   // big button link
+    ctaLabel: "RSVP Now",               // button text
+    footerNote: "Optional small print",
+  }
+)
+```
+
+## Sender & BCC
+
+- From: `Greenbrook Framers <captain@framers.app>`
+- BCC: `hannes.magnusson@gmail.com` on all emails (automatic in sendEmail/sendEmailBatch)
+
+## Deduplication
+
+For cron-triggered emails, log to `app_events` after sending and check before re-sending:
+- `rsvp_reminder` — detail: `{matchId}|{count} recipients` — max once/day per match
+- `score_reminder` — detail: `{matchId}|{count} recipients` — max once per 3 days per match
+
+## Webhooks
+
+Resend webhooks hit `/api/webhooks/resend` (signature-verified via `RESEND_WEBHOOK_SECRET`).
+Events logged to `app_events`: `email.delivered`, `email.opened`, `email.clicked`, `email.bounced`, `email.complained`.

@@ -1,0 +1,28 @@
+---
+description: Pending features, known issues, and future work
+alwaysApply: true
+---
+
+# Pending Work & Known Issues
+
+## Ready to Build
+
+- **Junior Framers 2026 roster/schedule**: Populate when USTA data is available
+- **Doubles tournament support**: DB supports it (`partner_id`), needs UI for pair display
+- **Match prediction**: Predict likely opponent lineups based on historical data
+- **Payment dashboard polish**: Show pot calculations, refund tracking for no-show buffer
+- **Web Push notifications**: Deferred in favor of email, but infrastructure exists
+
+## Known Issues
+
+- **ICS feed**: Works well but some calendar clients may cache aggressively (max-age=0 is set)
+- **USTA sync**: Regex-based HTML scraping — fragile if USTA changes their markup
+- **Dark mode contrast**: Was fixed systemically but may regress if new hardcoded colors are added
+
+## Architecture Notes
+
+- The old tournament site `greenbrook-champs.pages.dev` now redirects to `framers.app`. Its KV data is preserved but not actively used
+- `src/app/api/debug/route.ts` has one-off admin actions — keep this pattern for data fixes
+- `src/app/api/setup/route.ts` is the schema source of truth — update it when adding tables/columns
+- Scores in tournament_matches use JSON arrays (`"[6,4,10]"`) — always parse with `JSON.parse()` in a try/catch
+- The `app_events` table serves double duty: analytics dashboard AND cron deduplication

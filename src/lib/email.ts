@@ -82,11 +82,12 @@ export async function sendEmail({ to, subject, html, from }: SendEmailOptions): 
       Authorization: `Bearer ${resendKey}`,
     },
     body: JSON.stringify({
-      from: from ?? "Greenbrook Framers <noreply@framers.app>",
+      from: from ?? "Greenbrook Framers <captain@framers.app>",
       to,
       bcc: to !== "hannes.magnusson@gmail.com" ? "hannes.magnusson@gmail.com" : undefined,
       subject,
       html,
+      tracking: { open: true, click: true },
     }),
   });
 
@@ -100,4 +101,57 @@ export async function sendEmail({ to, subject, html, from }: SendEmailOptions): 
   console.log(`[EMAIL-SENT] ${subject} → ${to}`);
   await track("email_sent", { detail: `${to}|${subject}` }).catch(() => {});
   return true;
+}
+
+/**
+ * Send up to 100 personalized emails in a single API call via Resend Batch API.
+ * Each email can have its own to/subject/html. Returns per-email success status.
+ */
+export async function sendEmailBatch(
+  emails: SendEmailOptions[]
+): Promise<{ sent: number; failed: string[] }> {
+  if (emails.length === 0) return { sent: 0, failed: [] };
+
+  const { env } = await getCloudflareContext({ async: true });
+  const resendKey = env.RESEND_API_KEY;
+
+  if (!resendKey) {
+    console.log(`[EMAIL-DEV] No RESEND_API_KEY — would batch send ${emails.length} emails`);
+    return { sent: 0, failed: emails.map((e) => e.to) };
+  }
+
+  const defaultFrom = "Greenbrook Framers <captain@framers.app>";
+  const payload = emails.map((e) => ({
+    from: e.from ?? defaultFrom,
+    to: e.to,
+    bcc: e.to !== "hannes.magnusson@gmail.com" ? "hannes.magnusson@gmail.com" : undefined,
+    subject: e.subject,
+    html: e.html,
+    tracking: { open: true, click: true },
+  }));
+
+  const res = await fetch("https://api.resend.com/emails/batch", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${resendKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.error(`[EMAIL-BATCH-ERROR] Batch send failed: ${err}`);
+    for (const e of emails) {
+      await track("email_failed", { detail: `${e.to}|${e.subject}` }).catch(() => {});
+    }
+    return { sent: 0, failed: emails.map((e) => e.to) };
+  }
+
+  const result = (await res.json()) as { data: { id: string }[] };
+  console.log(`[EMAIL-BATCH] Sent ${result.data.length} emails`);
+  for (const e of emails) {
+    await track("email_sent", { detail: `${e.to}|${e.subject}` }).catch(() => {});
+  }
+  return { sent: result.data.length, failed: [] };
 }

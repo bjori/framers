@@ -1,0 +1,48 @@
+---
+description: Tennis and USTA domain knowledge for the Framers app
+alwaysApply: true
+---
+
+# Domain Knowledge
+
+## USTA League Structure
+
+- Teams play ~10 matches per season against other clubs
+- Each match has 5 lines: D1 (Doubles 1), D2, D3, S1 (Singles 1), S2
+- D1 is worth **2 points** in 40+ leagues; all others worth 1 point
+- Players have NTRP ratings (2.5 / 3.0 / 3.5 etc.)
+- Matches are scraped from `leagues.ustanorcal.com` via `/api/admin/usta-sync`
+
+## Teams
+
+| Team | Slug | Age Group | Status |
+|------|------|-----------|--------|
+| Senior Framers 2026 | `senior-framers-2026` | 40+ | Active |
+| Junior Framers 2026 | `junior-framers-2026` | 18+ | Upcoming |
+| Historical 2025 teams | `senior-framers-2025` / `junior-framers-2025` | — | Completed (read-only) |
+
+## Tournament
+
+- Current: "Greenbrook Singles World Championships 2026" (`singles-championship-2026`)
+- Format: Round-robin, best of 3 sets, 11 players, 55 matches across 11 weeks
+- $40 entry ($30 fee + $10 no-show buffer). Winner gets 80% of pot, last place gets 20%
+
+## Lineup Optimizer
+
+`src/lib/lineup-optimizer.ts` — greedy constraint solver considering:
+- ELO ratings (strongest on highest lines)
+- `doubles_only` preference (avoid singles unless necessary to prevent forfeit)
+- Availability (RSVP yes/maybe)
+- Minimum match fairness (boost players below 3-match goal)
+- Reliability score (carrot system)
+- Default-win boost (prioritize real playing time for those who won by forfeit)
+
+## ELO System
+
+`src/lib/elo.ts` — separate singles/doubles ratings, K-factor adjusted.
+Batch recalculate via `/api/admin/elo/recalculate`. Updated live on score submission.
+
+## Match Lifecycle (League)
+
+`open` → `needs_players` → `rsvp_closed` → `lineup_draft` → `lineup_confirmed` → `locked` → `completed`
+Auto-transitions via cron. Players acknowledge lineup spots after confirmation.

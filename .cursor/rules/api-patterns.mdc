@@ -1,0 +1,45 @@
+---
+description: API route conventions and auth patterns
+globs: src/app/api/**/*.ts
+alwaysApply: false
+---
+
+# API Route Patterns
+
+## Auth & Authorization
+
+```typescript
+import { getSession } from "@/lib/auth";
+
+// Check login
+const session = await getSession();
+if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+// Check admin
+if (!session.is_admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+// Check team captain/co-captain
+const membership = await db.prepare(
+  "SELECT role FROM team_memberships WHERE player_id = ? AND team_id = ?"
+).bind(session.player_id, teamId).first();
+const isCaptain = session.is_admin || membership?.role === 'captain' || membership?.role === 'co-captain';
+```
+
+## Public Routes
+
+Add to `PUBLIC_PATHS` in `src/middleware.ts` or use prefix matching.
+Currently public: `/`, `/login`, `/api/auth/*`, `/api/ics/*`, `/api/webhooks/*`, `/api/cron`, `/join/*`.
+
+## Email Sending
+
+For single emails use `sendEmail()`. For 2+ emails, always use `sendEmailBatch()` to avoid rate limits.
+Always wrap HTML in `emailTemplate(content, { heading, ctaUrl, ctaLabel })`.
+
+## Params in App Router
+
+Next.js 15 async params: `{ params }: { params: Promise<{ slug: string }> }` then `const { slug } = await params;`
+
+## Error Handling
+
+API routes should return JSON with `{ error: string }` for errors, `{ ok: true, ... }` for success.
+Log errors with `console.error("[CONTEXT]", error)`.

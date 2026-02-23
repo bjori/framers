@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { optimizeLineup, type AvailablePlayer } from "@/lib/lineup-optimizer";
-import { sendEmail, emailTemplate } from "@/lib/email";
+import { sendEmailBatch, emailTemplate } from "@/lib/email";
 import { transitionMatch } from "@/lib/match-lifecycle";
 
 export async function POST(
@@ -123,8 +123,8 @@ export async function POST(
       await transitionMatch(body.matchId, "lineup_confirmed", { id: session.player_id, name: session.name });
 
       const matchInfo = await db.prepare(
-        "SELECT opponent_team, match_date, is_home FROM league_matches WHERE id = ?"
-      ).bind(body.matchId).first<{ opponent_team: string; match_date: string; is_home: number }>();
+        "SELECT opponent_team, match_date, match_time, location, notes, is_home FROM league_matches WHERE id = ?"
+      ).bind(body.matchId).first<{ opponent_team: string; match_date: string; match_time: string | null; location: string | null; notes: string | null; is_home: number }>();
 
       if (matchInfo) {
         const dateStr = new Date(matchInfo.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
@@ -142,28 +142,53 @@ export async function POST(
           return `<li><strong>${s.position}</strong>: ${p?.name ?? "TBD"}</li>`;
         }).join("");
 
-        for (const p of players) {
-          const myPositions = body.slots.filter((s) => s.playerId === p.id).map((s) => s.position).join(", ");
-          await sendEmail({
+        let timeStr = "";
+        if (matchInfo.match_time) {
+          const [h, m] = matchInfo.match_time.split(":").map(Number);
+          timeStr = `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+        }
+
+        const logisticsHtml = `
+          <table role="presentation" style="width: 100%; margin: 16px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0;">
+            <tr>
+              <td style="padding: 12px 16px; border-right: 1px solid #e2e8f0; width: 50%;">
+                <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">When</p>
+                <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${dateStr}${timeStr ? ` · ${timeStr}` : ""}</p>
+              </td>
+              <td style="padding: 12px 16px; width: 50%;">
+                <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">Where</p>
+                <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${matchInfo.location || "TBD"}</p>
+              </td>
+            </tr>
+            ${matchInfo.notes ? `<tr><td colspan="2" style="padding: 8px 16px; border-top: 1px solid #e2e8f0;"><p style="margin: 0; font-size: 13px; color: #475569;">${matchInfo.notes}</p></td></tr>` : ""}
+          </table>`;
+
+        const matchUrl = `https://framers.app/team/${slug}/match/${body.matchId}`;
+
+        const batch = players.map((p) => {
+          const myPositions = body.slots!.filter((s) => s.playerId === p.id).map((s) => s.position).join(", ");
+          return {
             to: p.email,
-            subject: `Lineup confirmed: ${matchInfo.opponent_team} on ${dateStr}`,
+            subject: `Lineup confirmed: ${matchInfo!.opponent_team} on ${dateStr}`,
             html: emailTemplate(
               `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">You're playing, ${p.name.split(" ")[0]}!</h2>
-               <p>The lineup for <strong>${matchInfo.opponent_team}</strong> on <strong>${dateStr}</strong> (${matchInfo.is_home ? "Home" : "Away"}) has been confirmed.</p>
+               <p>The lineup for <strong>${matchInfo!.opponent_team}</strong> (${matchInfo!.is_home ? "Home" : "Away"}) has been confirmed.</p>
+               ${logisticsHtml}
                <p style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; font-weight: 600; color: #166534;">
                  Your position: ${myPositions}
                </p>
                <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0;">Full Lineup</h3>
                <ul style="padding-left: 20px; color: #334155;">${lineupHtml}</ul>
-               <p style="margin-top: 16px;">Good luck! &#127934;</p>`,
+               <p style="margin-top: 20px; font-size: 14px; font-weight: 600; color: #0c4a6e;">Please confirm you can make it:</p>`,
               {
                 heading: "Lineup Confirmed",
-                ctaUrl: `https://framers.app/team/${slug}/match/${body.matchId}`,
-                ctaLabel: "View Match Details",
+                ctaUrl: matchUrl,
+                ctaLabel: "Confirm I'll Be There",
               }
             ),
-          });
-        }
+          };
+        });
+        await sendEmailBatch(batch);
       }
     }
 

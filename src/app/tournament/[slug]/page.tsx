@@ -1,5 +1,6 @@
 import { getDB } from "@/lib/db";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { TournamentSchedule } from "@/components/tournament-schedule";
 import { TournamentStandings } from "@/components/tournament-standings";
 
@@ -174,11 +175,19 @@ export default async function TournamentPage({ params }: { params: Promise<{ slu
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">{tournament.name}</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          {tournament.format.replace("_", " ")} &middot; {tournament.match_type} &middot; {completedCount}/{totalCount} matches completed
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">{tournament.name}</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            {tournament.format.replace("_", " ")} &middot; {tournament.match_type} &middot; {completedCount}/{totalCount} matches completed
+          </p>
+        </div>
+        <Link
+          href={`/tournament/${slug}/rules`}
+          className="shrink-0 px-3 py-1.5 text-sm font-semibold rounded-lg border border-border hover:bg-surface-alt transition-colors"
+        >
+          Rules
+        </Link>
       </div>
 
       <TournamentStandings standings={standings} isDoubles={isDoubles} />

@@ -136,7 +136,12 @@ function AnnouncementSection({ setMessage }: { setMessage: (m: string) => void }
               {sending === "test" ? "Sending..." : "Test Send to Me"}
             </button>
             <button
-              onClick={() => sendAnnouncement()}
+              onClick={() => {
+                const teamName = teams.find((t) => t.id === form.teamId)?.name ?? "the team";
+                if (window.confirm(`Send "${form.subject}" to all active members of ${teamName}?`)) {
+                  sendAnnouncement();
+                }
+              }}
               disabled={!!sending}
               className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold disabled:opacity-50 flex items-center gap-1.5"
             >

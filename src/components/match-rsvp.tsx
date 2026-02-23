@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export function MatchRsvp({ slug, matchId, currentStatus }: { slug: string; matchId: string; currentStatus: string | null }) {
   const [status, setStatus] = useState(currentStatus);
   const [submitting, setSubmitting] = useState(false);
+  const router = useRouter();
 
   async function handleRsvp(newStatus: "yes" | "maybe" | "no") {
     setSubmitting(true);
@@ -13,7 +15,10 @@ export function MatchRsvp({ slug, matchId, currentStatus }: { slug: string; matc
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ matchId, status: newStatus }),
     });
-    if (res.ok) setStatus(newStatus);
+    if (res.ok) {
+      setStatus(newStatus);
+      router.refresh();
+    }
     setSubmitting(false);
   }
 

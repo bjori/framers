@@ -1,5 +1,5 @@
 import { getDB } from "@/lib/db";
-import { sendEmail, emailTemplate } from "@/lib/email";
+import { sendEmailBatch, emailTemplate } from "@/lib/email";
 
 export type MatchStatus = "open" | "needs_players" | "rsvp_closed" | "lineup_draft" | "lineup_confirmed" | "locked" | "completed" | "cancelled";
 
@@ -68,22 +68,21 @@ async function sendNeedsPlayersEmail(teamId: string, opponent: string, date: str
 
   const dateStr = new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
-  for (const m of members) {
-    await sendEmail({
-      to: m.email,
-      subject: `We need you! RSVP for ${opponent} on ${dateStr}`,
-      html: emailTemplate(
-        `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${m.name.split(" ")[0]},</h2>
-         <p>We're short on players for our match against <strong>${opponent}</strong> on <strong>${dateStr}</strong>.</p>
-         <p>Please RSVP as soon as possible so we can finalize the lineup!</p>`,
-        {
-          heading: "RSVP Needed",
-          ctaUrl: `https://framers.app/team/${teamSlug}/match/${matchId}`,
-          ctaLabel: "RSVP Now",
-        }
-      ),
-    });
-  }
+  const batch = members.map((m) => ({
+    to: m.email,
+    subject: `We need you! RSVP for ${opponent} on ${dateStr}`,
+    html: emailTemplate(
+      `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${m.name.split(" ")[0]},</h2>
+       <p>We're short on players for our match against <strong>${opponent}</strong> on <strong>${dateStr}</strong>.</p>
+       <p>Please RSVP as soon as possible so we can finalize the lineup!</p>`,
+      {
+        heading: "RSVP Needed",
+        ctaUrl: `https://framers.app/team/${teamSlug}/match/${matchId}`,
+        ctaLabel: "RSVP Now",
+      }
+    ),
+  }));
+  await sendEmailBatch(batch);
 }
 
 export async function checkAutoTransitions(teamId: string): Promise<string[]> {

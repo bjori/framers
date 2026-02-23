@@ -79,6 +79,38 @@ export async function POST(request: NextRequest) {
   const teamResp = await fetch(teamUrl);
   const teamHtml = await teamResp.text();
 
+  // Extract match time/notes from the schedule table rows
+  const schedRowRegex = /(\d{2})\/(\d{2})\/(\d{2})<\/a>.*?<td[^>]*>(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)<\/td>\s*<td>([^<]*)/gi;
+  let schedMatch;
+  const timeUpdates: { date: string; rawTime: string }[] = [];
+  while ((schedMatch = schedRowRegex.exec(teamHtml)) !== null) {
+    const d = `20${schedMatch[3]}-${schedMatch[1]}-${schedMatch[2]}`;
+    const raw = schedMatch[4].replace(/&nbsp;/g, " ").trim();
+    if (raw) timeUpdates.push({ date: d, rawTime: raw });
+  }
+  // Also catch unlinked dates (future scheduled matches)
+  const schedRowRegex2 = /&nbsp;(\d{2})\/(\d{2})\/(\d{2})<\/td>\s*<td[^>]*>(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)<\/td>\s*<td>([^<]*)/gi;
+  while ((schedMatch = schedRowRegex2.exec(teamHtml)) !== null) {
+    const d = `20${schedMatch[3]}-${schedMatch[1]}-${schedMatch[2]}`;
+    const raw = schedMatch[4].replace(/&nbsp;/g, " ").trim();
+    if (raw) timeUpdates.push({ date: d, rawTime: raw });
+  }
+
+  for (const tu of timeUpdates) {
+    const timeMatch = tu.rawTime.match(/(\d{1,2}:\d{2})\s*(AM|PM)/i);
+    let matchTime: string | null = null;
+    if (timeMatch) {
+      const [, t, period] = timeMatch;
+      const [hh, mm] = t.split(":").map(Number);
+      const h24 = period.toUpperCase() === "PM" && hh < 12 ? hh + 12 : period.toUpperCase() === "AM" && hh === 12 ? 0 : hh;
+      matchTime = `${String(h24).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    }
+    if (matchTime) {
+      await db.prepare("UPDATE league_matches SET match_time = ?, notes = ? WHERE team_id = ? AND match_date = ?")
+        .bind(matchTime, tu.rawTime, team.id, tu.date).run();
+    }
+  }
+
   // Extract scorecard IDs (handle both &amp; and & encoded)
   const scorecardIds: { id: string; leagueParam: string }[] = [];
   const scRegex1 = /scorecard\.asp\?id=(\d+)&amp;l=([^"&\s]+)/g;

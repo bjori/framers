@@ -4,6 +4,9 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { LineupGenerator } from "@/components/lineup-generator";
 import { MatchRsvp } from "@/components/match-rsvp";
+import { ConfirmLineup } from "@/components/confirm-lineup";
+import { MatchDetailsEditor } from "@/components/match-details-editor";
+import { LineupAcknowledge } from "@/components/lineup-acknowledge";
 
 interface RsvpResponse {
   player_id: string;
@@ -18,6 +21,7 @@ interface LineupSlotRow {
   player_name: string;
   player_id: string;
   is_alternate: number;
+  acknowledged: number | null;
 }
 
 export default async function MatchDetailPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
@@ -33,6 +37,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
       id: string; round_number: number; opponent_team: string; match_date: string;
       match_time: string | null; location: string | null; is_home: number;
       team_result: string | null; team_score: string | null; status: string;
+      notes: string | null;
     }>();
   if (!match) notFound();
 
@@ -62,7 +67,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
     lineupSlots = (
       await db
         .prepare(
-          `SELECT ls.position, p.name as player_name, ls.player_id, ls.is_alternate
+          `SELECT ls.position, p.name as player_name, ls.player_id, ls.is_alternate, ls.acknowledged
            FROM lineup_slots ls
            JOIN players p ON p.id = ls.player_id
            WHERE ls.lineup_id = ?
@@ -107,6 +112,16 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
 
   const myRsvp = session ? rsvps.find((r) => r.player_id === session.player_id)?.status ?? null : null;
 
+  const matchDate = new Date(match.match_date + "T12:00:00");
+  const dateStr = matchDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
+  function formatTime(t: string) {
+    const [h, m] = t.split(":").map(Number);
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 || 12;
+    return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -122,16 +137,48 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
           <h1 className="text-xl font-bold">vs {match.opponent_team}</h1>
         </div>
         <p className="text-sm text-slate-500 mt-1">
-          Round {match.round_number} ·{" "}
-          {new Date(match.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
-          {match.match_time ? ` at ${match.match_time}` : ""}
-          {match.location ? ` · ${match.location}` : ""}
+          Round {match.round_number} · {dateStr}
         </p>
         <p className="text-xs text-slate-400 mt-0.5">Format: {formatLabel}</p>
         {isPast && match.team_score && (
           <p className={`text-2xl font-bold mt-2 ${match.team_result === "Won" ? "text-accent" : "text-danger"}`}>
             {match.team_score} — {match.team_result}
           </p>
+        )}
+      </div>
+
+      {/* Match logistics */}
+      <div className="bg-surface-alt rounded-xl border border-border p-4 space-y-2">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">When</p>
+            <p className="text-sm font-medium">
+              {match.match_time ? formatTime(match.match_time) : <span className="text-slate-400">TBD</span>}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Where</p>
+            <p className="text-sm font-medium">
+              {match.location || <span className="text-slate-400">TBD</span>}
+            </p>
+          </div>
+        </div>
+        {match.notes && (
+          <div className="pt-1 border-t border-border">
+            <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider mb-0.5">Notes</p>
+            <p className="text-sm whitespace-pre-line">{match.notes}</p>
+          </div>
+        )}
+        {canManage && !isPast && (
+          <div className="pt-1">
+            <MatchDetailsEditor
+              slug={slug}
+              matchId={id}
+              currentTime={match.match_time}
+              currentLocation={match.location}
+              currentNotes={match.notes}
+            />
+          </div>
         )}
       </div>
 
@@ -197,6 +244,15 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
                     <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-danger/10 text-danger">Withdrawn</span>
                   )}
                 </div>
+                {lineup!.status === "confirmed" && s.is_alternate === 0 && (
+                  <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                    s.acknowledged === 1 ? "bg-accent/10 text-accent" :
+                    s.acknowledged === 0 ? "bg-danger/10 text-danger" :
+                    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                  }`}>
+                    {s.acknowledged === 1 ? "Confirmed" : s.acknowledged === 0 ? "Declined" : "Pending"}
+                  </span>
+                )}
               </div>
             ))}
             {lineupSlots.filter((s) => s.is_alternate === 1).length > 0 && (
@@ -212,6 +268,46 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
             <p className="text-xs text-danger mt-2">
               A player has withdrawn. Use the lineup tool below to regenerate.
             </p>
+          )}
+          {canManage && lineup.status === "draft" && (
+            <ConfirmLineup
+              slug={slug}
+              matchId={id}
+              slots={lineupSlots.filter((s) => s.is_alternate === 0).map((s) => ({ position: s.position, playerId: s.player_id }))}
+            />
+          )}
+          {(() => {
+            const mySlot = session && lineup.status === "confirmed" && !isPast
+              ? lineupSlots.find((s) => s.player_id === session.player_id && s.is_alternate === 0)
+              : null;
+            if (!mySlot) return null;
+            return (
+              <div className="mt-3">
+                <LineupAcknowledge
+                  slug={slug}
+                  matchId={id}
+                  position={mySlot.position}
+                  currentAck={mySlot.acknowledged}
+                />
+              </div>
+            );
+          })()}
+          {canManage && lineup.status === "confirmed" && !isPast && (
+            <div className="mt-3 text-xs text-slate-500">
+              {(() => {
+                const starters = lineupSlots.filter((s) => s.is_alternate === 0);
+                const confirmed = starters.filter((s) => s.acknowledged === 1).length;
+                const pending = starters.filter((s) => s.acknowledged === null).length;
+                const declined = starters.filter((s) => s.acknowledged === 0).length;
+                return (
+                  <span>
+                    Confirmations: {confirmed}/{starters.length} confirmed
+                    {pending > 0 && <span className="text-amber-600 dark:text-amber-400"> · {pending} pending</span>}
+                    {declined > 0 && <span className="text-danger"> · {declined} declined</span>}
+                  </span>
+                );
+              })()}
+            </div>
           )}
         </section>
       )}

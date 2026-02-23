@@ -30,6 +30,7 @@ interface UpcomingLeagueMatch {
   rsvp_status: string | null;
   lineup_status: string | null;
   lineup_position: string | null;
+  lineup_acknowledged: number | null;
 }
 
 interface UnscoredMatch {
@@ -58,6 +59,11 @@ interface TimelineEvent {
   kind: "tournament" | "league" | "practice";
   date: string;
   data: UpcomingTournamentMatch | UpcomingLeagueMatch | UpcomingPractice;
+}
+
+function fmtTime(t: string) {
+  const [h, m] = t.split(":").map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
 }
 
 export default async function DashboardPage() {
@@ -107,7 +113,8 @@ export default async function DashboardPage() {
                     WHEN ls.position IS NOT NULL THEN 'selected'
                     ELSE NULL
                   END as lineup_status,
-                  ls.position as lineup_position
+                  ls.position as lineup_position,
+                  ls.acknowledged as lineup_acknowledged
            FROM league_matches lm
            JOIN teams te ON te.id = lm.team_id
            JOIN team_memberships mem ON mem.team_id = te.id AND mem.player_id = ?
@@ -319,8 +326,14 @@ export default async function DashboardPage() {
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <p className="font-medium text-sm">{m.is_home ? "vs" : "@"} {m.opponent_team}</p>
                           {m.lineup_status === "selected" && (
-                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300">
-                              {m.lineup_position ?? "Lineup"}
+                            <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                              m.lineup_acknowledged === 1
+                                ? "bg-accent/10 text-accent"
+                                : m.lineup_acknowledged === null
+                                ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+                                : "bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300"
+                            }`}>
+                              {m.lineup_acknowledged === 1 ? `${m.lineup_position} ✓` : m.lineup_acknowledged === null ? `${m.lineup_position} — confirm?` : m.lineup_position ?? "Lineup"}
                             </span>
                           )}
                           {m.lineup_status === "alternate" && (
@@ -345,7 +358,7 @@ export default async function DashboardPage() {
                           {new Date(m.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                         </p>
                         <p className="text-[11px] text-slate-400">
-                          {m.match_time ?? ""}{m.location ? ` · ${m.location}` : ""}
+                          {m.match_time ? fmtTime(m.match_time) : ""}{m.location ? ` · ${m.location}` : ""}
                         </p>
                       </div>
                     )}
@@ -356,7 +369,7 @@ export default async function DashboardPage() {
                             {new Date(m.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                           </p>
                           <p className="text-[11px] text-slate-400">
-                            {m.match_time ?? ""}{m.location ? ` · ${m.location}` : ""}
+                            {m.match_time ? fmtTime(m.match_time) : ""}{m.location ? ` · ${m.location}` : ""}
                           </p>
                         </div>
                         <DashboardRsvp slug={m.team_slug} matchId={m.match_id} />
