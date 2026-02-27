@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { LineupGenerator } from "@/components/lineup-generator";
+import { LineupEditor } from "@/components/lineup-editor";
 import { MatchRsvp } from "@/components/match-rsvp";
 import { ConfirmLineup } from "@/components/confirm-lineup";
 import { MatchDetailsEditor } from "@/components/match-details-editor";
@@ -22,6 +23,8 @@ interface LineupSlotRow {
   player_id: string;
   is_alternate: number;
   acknowledged: number | null;
+  singles_elo: number;
+  doubles_elo: number;
 }
 
 export default async function MatchDetailPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
@@ -67,7 +70,8 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
     lineupSlots = (
       await db
         .prepare(
-          `SELECT ls.position, p.name as player_name, ls.player_id, ls.is_alternate, ls.acknowledged
+          `SELECT ls.position, p.name as player_name, ls.player_id, ls.is_alternate, ls.acknowledged,
+                  p.singles_elo, p.doubles_elo
            FROM lineup_slots ls
            JOIN players p ON p.id = ls.player_id
            WHERE ls.lineup_id = ?
@@ -109,6 +113,56 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
     isCaptain = membership?.role === "captain" || membership?.role === "co-captain";
   }
   const canManage = isAdmin || isCaptain;
+
+  // Query all active team members for the lineup editor's available-players pool
+  const positionOrder: Record<string, number> = { S1: 0, S2: 1, D1A: 2, D1B: 3, D2A: 4, D2B: 5, D3A: 6, D3B: 7 };
+  let editableSlots: { position: string; playerId: string | null; playerName: string | null; singlesElo: number; doublesElo: number }[] = [];
+  let poolPlayers: { id: string; name: string; singlesElo: number; doublesElo: number; rsvpStatus: string | null }[] = [];
+
+  if (canManage && !isPast && lineup) {
+    const teamMembers = (
+      await db
+        .prepare(
+          `SELECT p.id, p.name, p.singles_elo, p.doubles_elo, a.status as rsvp_status
+           FROM team_memberships tm
+           JOIN players p ON p.id = tm.player_id
+           LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
+           WHERE tm.team_id = ? AND tm.active = 1
+           ORDER BY p.singles_elo DESC`
+        )
+        .bind(id, team.id)
+        .all<{ id: string; name: string; singles_elo: number; doubles_elo: number; rsvp_status: string | null }>()
+    ).results;
+
+    editableSlots = lineupSlots
+      .filter((s) => s.is_alternate === 0 || s.is_alternate === -1)
+      .map((s) => ({
+        position: s.position,
+        playerId: s.is_alternate === -1 ? null : s.player_id,
+        playerName: s.is_alternate === -1 ? null : s.player_name,
+        singlesElo: s.is_alternate === -1 ? 0 : s.singles_elo,
+        doublesElo: s.is_alternate === -1 ? 0 : s.doubles_elo,
+      }))
+      .sort((a, b) => (positionOrder[a.position] ?? 99) - (positionOrder[b.position] ?? 99));
+
+    const activeStarterIds = new Set(
+      lineupSlots.filter((s) => s.is_alternate === 0).map((s) => s.player_id)
+    );
+    poolPlayers = teamMembers
+      .filter((m) => !activeStarterIds.has(m.id))
+      .sort((a, b) => {
+        const rsvpOrder = (s: string | null) => (s === "yes" ? 0 : s === "maybe" ? 1 : s === "no" ? 3 : 2);
+        const diff = rsvpOrder(a.rsvp_status) - rsvpOrder(b.rsvp_status);
+        return diff !== 0 ? diff : b.singles_elo - a.singles_elo;
+      })
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        singlesElo: m.singles_elo,
+        doublesElo: m.doubles_elo,
+        rsvpStatus: m.rsvp_status,
+      }));
+  }
 
   const myRsvp = session ? rsvps.find((r) => r.player_id === session.player_id)?.status ?? null : null;
 
@@ -264,12 +318,12 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
               </div>
             )}
           </div>
-          {lineupSlots.some((s) => s.is_alternate === -1) && canManage && (
+          {lineupSlots.some((s) => s.is_alternate === -1) && canManage && !isPast && (
             <p className="text-xs text-danger mt-2">
-              A player has withdrawn. Use the lineup tool below to regenerate.
+              A player has withdrawn. Pick a replacement from the editor below.
             </p>
           )}
-          {canManage && lineup.status === "draft" && (
+          {canManage && lineup.status === "draft" && isPast && (
             <ConfirmLineup
               slug={slug}
               matchId={id}
@@ -312,8 +366,13 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
         </section>
       )}
 
-      {/* Lineup Generator for captains/admins - allow regeneration when a player withdrew */}
-      {canManage && !isPast && (!lineup || lineup.status === "draft" || lineupSlots.some((s) => s.is_alternate === -1)) && (
+      {/* Lineup Editor for captains/admins — edit existing lineup, sub players, reorder */}
+      {canManage && !isPast && lineup && editableSlots.length > 0 && (
+        <LineupEditor slug={slug} matchId={id} slots={editableSlots} poolPlayers={poolPlayers} />
+      )}
+
+      {/* Lineup Generator — only for first-time lineup creation */}
+      {canManage && !isPast && !lineup && (
         <LineupGenerator slug={slug} matchId={id} />
       )}
 
