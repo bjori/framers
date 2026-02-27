@@ -102,7 +102,19 @@ export async function POST(
     // Upsert lineup
     let lineupId = (await db.prepare("SELECT id FROM lineups WHERE match_id = ?").bind(body.matchId).first<{ id: string }>())?.id;
 
+    // Capture existing acknowledgments so we can preserve them for players staying in the lineup
+    const prevAcks = new Map<string, { acknowledged: number | null; acknowledged_at: string | null }>();
     if (lineupId) {
+      const existing = (
+        await db
+          .prepare("SELECT player_id, acknowledged, acknowledged_at FROM lineup_slots WHERE lineup_id = ? AND acknowledged IS NOT NULL")
+          .bind(lineupId)
+          .all<{ player_id: string; acknowledged: number | null; acknowledged_at: string | null }>()
+      ).results;
+      for (const row of existing) {
+        prevAcks.set(row.player_id, { acknowledged: row.acknowledged, acknowledged_at: row.acknowledged_at });
+      }
+
       await db.prepare("DELETE FROM lineup_slots WHERE lineup_id = ?").bind(lineupId).run();
       await db.prepare("UPDATE lineups SET status = ?, confirmed_at = ? WHERE id = ?")
         .bind(body.action === "confirm" ? "confirmed" : "draft", body.action === "confirm" ? new Date().toISOString() : null, lineupId).run();
@@ -113,10 +125,11 @@ export async function POST(
     }
 
     await db.batch(
-      body.slots.map((s, i) =>
-        db.prepare("INSERT INTO lineup_slots (id, lineup_id, position, player_id, is_alternate) VALUES (?,?,?,?,?)")
-          .bind(crypto.randomUUID(), lineupId, s.position, s.playerId, i >= (format.singles + format.doubles * 2) ? 1 : 0)
-      )
+      body.slots.map((s, i) => {
+        const prev = prevAcks.get(s.playerId);
+        return db.prepare("INSERT INTO lineup_slots (id, lineup_id, position, player_id, is_alternate, acknowledged, acknowledged_at) VALUES (?,?,?,?,?,?,?)")
+          .bind(crypto.randomUUID(), lineupId, s.position, s.playerId, i >= (format.singles + format.doubles * 2) ? 1 : 0, prev?.acknowledged ?? null, prev?.acknowledged_at ?? null);
+      })
     );
 
     if (body.action === "confirm") {
