@@ -70,6 +70,26 @@ export function setSessionCookie(token: string) {
   };
 }
 
+/**
+ * Returns true if the session belongs to an admin or a captain/co-captain on any active team.
+ * Use this to gate access to the admin panel and admin API routes.
+ */
+export async function canAccessAdmin(session: Awaited<ReturnType<typeof getSession>>): Promise<boolean> {
+  if (!session) return false;
+  if (session.is_admin === 1) return true;
+
+  const db = await getDB();
+  const captainRole = await db
+    .prepare(
+      `SELECT 1 FROM team_memberships
+       WHERE player_id = ? AND role IN ('captain','co-captain') AND active = 1
+       LIMIT 1`
+    )
+    .bind(session.player_id)
+    .first();
+  return !!captainRole;
+}
+
 export async function generateMagicToken(email: string): Promise<string | null> {
   const db = await getDB();
   const kv = await getKV();

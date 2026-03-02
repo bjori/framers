@@ -1,10 +1,10 @@
-import { getSession } from "@/lib/auth";
+import { getSession, canAccessAdmin } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import AnalyticsDashboard from "./analytics-dashboard";
 
 export default async function AdminAnalyticsPage() {
   const session = await getSession();
-  if (!session || session.is_admin !== 1) redirect("/dashboard");
+  if (!session || !(await canAccessAdmin(session))) redirect("/dashboard");
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-8">

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, canAccessAdmin } from "@/lib/auth";
 import { calculateElo } from "@/lib/elo";
 import { track } from "@/lib/analytics";
 
@@ -58,7 +58,7 @@ export async function POST(
   }
 
   const isParticipant = session.player_id === match.p1_player_id || session.player_id === match.p2_player_id;
-  const isAdmin = session.is_admin === 1;
+  const isAdmin = await canAccessAdmin(session);
   if (!isParticipant && !isAdmin) {
     return NextResponse.json({ error: "Only match participants or admins can submit scores" }, { status: 403 });
   }

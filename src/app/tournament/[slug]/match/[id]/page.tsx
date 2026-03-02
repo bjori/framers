@@ -1,5 +1,5 @@
 import { getDB } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, canAccessAdmin } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { TournamentMatchDetail } from "@/components/tournament-match-detail";
@@ -58,7 +58,7 @@ export default async function TournamentMatchPage({
   const isParticipant = session && (
     session.player_id === match.p1_player_id ||
     session.player_id === match.p2_player_id ||
-    session.is_admin === 1
+    await canAccessAdmin(session)
   );
 
   const isCompleted = match.status === "completed";

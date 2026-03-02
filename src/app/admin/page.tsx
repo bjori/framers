@@ -419,8 +419,8 @@ export default function AdminPage() {
   useEffect(() => {
     fetch("/api/auth/me").then(async (r) => {
       if (!r.ok) { router.push("/login"); return; }
-      const d = (await r.json()) as { user: { is_admin: number } | null };
-      if (!d?.user?.is_admin) { router.push("/dashboard"); return; }
+      const d = (await r.json()) as { user: { is_admin: number; can_admin: boolean } | null };
+      if (!d?.user?.can_admin) { router.push("/dashboard"); return; }
       loadPlayers();
     });
   }, [router]);

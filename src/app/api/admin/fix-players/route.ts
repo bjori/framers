@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, canAccessAdmin } from "@/lib/auth";
 
 const PLAYER_UPDATES: { id: string; email: string; phone: string | null; ntrp_rating: number; ntrp_type: string }[] = [
   { id: "624ef626-b13a-47c9-b23b-6fa96c237f47", email: "ballen636@gmail.com", phone: "949-637-0773", ntrp_rating: 3.0, ntrp_type: "3.0A" },
@@ -35,7 +35,7 @@ const NEW_PLAYERS = [
 
 export async function POST() {
   const session = await getSession();
-  if (!session || session.is_admin !== 1) {
+  if (!session || !(await canAccessAdmin(session))) {
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
 

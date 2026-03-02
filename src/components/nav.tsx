@@ -14,6 +14,7 @@ interface User {
   name: string;
   email: string;
   is_admin: number;
+  can_admin?: boolean;
   isImpersonating?: boolean;
   realAdminName?: string;
 }
@@ -39,7 +40,7 @@ export function Nav() {
   const [players, setPlayers] = useState<PlayerOption[]>([]);
   const [showImpersonate, setShowImpersonate] = useState(false);
 
-  const isRealAdmin = user && (user.isImpersonating || user.is_admin === 1);
+  const isRealAdmin = user && (user.isImpersonating || user.can_admin);
 
   useEffect(() => {
     fetch("/api/auth/me")

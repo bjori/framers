@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, canAccessAdmin } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
-  if (!session || session.is_admin !== 1) {
+  if (!session || !(await canAccessAdmin(session))) {
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, canAccessAdmin } from "@/lib/auth";
 import { HISTORICAL_2025_MATCHES, type HistoricalLine } from "@/lib/historical-2025-data";
 
 function lineWonByUs(line: HistoricalLine, homeTeam: "us" | "them"): boolean {
@@ -28,7 +28,7 @@ function scoreForSide(line: HistoricalLine, side: "home" | "visitor"): string {
 
 export async function POST() {
   const session = await getSession();
-  if (!session || session.is_admin !== 1) {
+  if (!session || !(await canAccessAdmin(session))) {
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
 

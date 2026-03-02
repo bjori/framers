@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { getSession, canAccessAdmin } from "@/lib/auth";
 import { calculateElo, seedElo } from "@/lib/elo";
 
 export async function POST() {
   const session = await getSession();
-  if (!session || session.is_admin !== 1) {
+  if (!session || !(await canAccessAdmin(session))) {
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
 
