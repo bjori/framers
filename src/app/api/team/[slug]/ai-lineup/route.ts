@@ -331,6 +331,16 @@ async function handleTool(
       const matchId = args.matchId as string;
       const slots = args.slots as { position: string; playerId: string }[];
 
+      if (!matchId || !slots || slots.length === 0) {
+        return JSON.stringify({ error: "matchId and slots are required" });
+      }
+
+      const matchExists = await db.prepare("SELECT id FROM league_matches WHERE id = ? AND team_id = ?")
+        .bind(matchId, teamId).first<{ id: string }>();
+      if (!matchExists) {
+        return JSON.stringify({ error: `Match '${matchId}' not found for this team. Use get_match_schedule to find valid match IDs.` });
+      }
+
       const existing = await db.prepare("SELECT id FROM lineups WHERE match_id = ?")
         .bind(matchId).first<{ id: string }>();
 
@@ -453,6 +463,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "OpenAI API key not configured" }, { status: 500 });
   }
 
+  try {
+
   const body = (await request.json()) as { messages: { role: string; content: string }[] };
   const userMessages = body.messages || [];
 
@@ -527,7 +539,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         // empty args is fine
       }
 
-      const result = await handleTool(db, team.id, slug, tc.function.name, parsedArgs);
+      let result: string;
+      try {
+        result = await handleTool(db, team.id, slug, tc.function.name, parsedArgs);
+      } catch (e) {
+        result = JSON.stringify({ error: `Tool '${tc.function.name}' failed: ${e instanceof Error ? e.message : String(e)}` });
+      }
+
       messages.push({
         role: "tool",
         tool_call_id: tc.id,
@@ -539,4 +557,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   return NextResponse.json({
     reply: "I hit my limit on tool calls for this question. Could you try rephrasing or breaking it into smaller questions?",
   });
+} catch (e) {
+  console.error("AI lineup error:", e);
+  return NextResponse.json(
+    { error: `Something went wrong: ${e instanceof Error ? e.message : String(e)}` },
+    { status: 500 }
+  );
+}
 }
