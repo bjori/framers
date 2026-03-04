@@ -89,7 +89,6 @@ export async function sendEmail({ to, subject, html, from }: SendEmailOptions): 
     body: JSON.stringify({
       from: from ?? "Greenbrook Framers <captain@framers.app>",
       to,
-      bcc: to !== "hannes.magnusson@gmail.com" ? "hannes.magnusson@gmail.com" : undefined,
       subject,
       html,
       tracking: { open: true, click: true },
@@ -129,7 +128,6 @@ export async function sendEmailBatch(
   const payload = emails.map((e) => ({
     from: e.from ?? defaultFrom,
     to: e.to,
-    bcc: e.to !== "hannes.magnusson@gmail.com" ? "hannes.magnusson@gmail.com" : undefined,
     subject: e.subject,
     html: e.html,
     tracking: { open: true, click: true },
