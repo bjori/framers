@@ -57,7 +57,7 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
          FROM team_memberships tm
          JOIN players p ON p.id = tm.player_id
          WHERE tm.team_id = ? AND tm.active = 1
-         ORDER BY tm.role DESC, p.singles_elo DESC`
+         ORDER BY p.singles_elo DESC`
       )
       .bind(team.id)
       .all<TeamMember>()
