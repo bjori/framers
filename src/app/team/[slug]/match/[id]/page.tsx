@@ -32,7 +32,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
   const db = await getDB();
 
   const team = await db.prepare("SELECT * FROM teams WHERE slug = ?").bind(slug)
-    .first<{ id: string; name: string; slug: string; league: string; match_format: string }>();
+    .first<{ id: string; name: string; slug: string; league: string; match_format: string; usta_team_id: string | null }>();
   if (!team) notFound();
 
   const match = await db.prepare("SELECT * FROM league_matches WHERE id = ? AND team_id = ?").bind(id, team.id)
@@ -40,7 +40,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
       id: string; round_number: number; opponent_team: string; match_date: string;
       match_time: string | null; location: string | null; is_home: number;
       team_result: string | null; team_score: string | null; status: string;
-      notes: string | null;
+      notes: string | null; usta_url: string | null;
     }>();
   if (!match) notFound();
 
@@ -228,6 +228,18 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
             <p className="text-sm whitespace-pre-line">{match.notes}</p>
           </div>
         )}
+        {(() => {
+          const ustaLink = match.usta_url || (team.usta_team_id ? `https://leagues.ustanorcal.com/teaminfo.asp?id=${team.usta_team_id}` : null);
+          if (!ustaLink) return null;
+          return (
+            <div className="pt-1 border-t border-border">
+              <a href={ustaLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-700 dark:text-sky-400 hover:underline">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                {match.usta_url ? "View on USTA NorCal" : "Team schedule on USTA NorCal"}
+              </a>
+            </div>
+          );
+        })()}
         {canManage && !isPast && (
           <div className="pt-1">
             <MatchDetailsEditor

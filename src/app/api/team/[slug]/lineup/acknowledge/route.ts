@@ -36,8 +36,12 @@ export async function POST(
   ).bind(ackValue, now, slot.id).run();
 
   if (body.response === "decline") {
-    // Mark as withdrawn
     await db.prepare("UPDATE lineup_slots SET is_alternate = -1 WHERE id = ?").bind(slot.id).run();
+
+    const matchId = body.matchId;
+    await db.prepare(
+      "INSERT INTO availability (player_id, match_id, status, responded_at) VALUES (?, ?, 'no', ?) ON CONFLICT(player_id, match_id) DO UPDATE SET status = 'no', responded_at = ?"
+    ).bind(session.player_id, matchId, now, now).run();
 
     // Notify captains
     const match = await db.prepare(

@@ -242,9 +242,10 @@ export async function POST(request: NextRequest) {
     const teamResult = ourPoints > theirPoints ? "Won" : "Lost";
     const teamScore = `${ourPoints}-${theirPoints}`;
 
+    const ustaUrl = `${USTA_BASE}/scorecard.asp?id=${sc.id}&l=${sc.leagueParam}`;
     stmts.push(
-      db.prepare("UPDATE league_matches SET status = 'completed', team_result = ?, team_score = ? WHERE id = ?")
-        .bind(teamResult, teamScore, matchByDate.id)
+      db.prepare("UPDATE league_matches SET status = 'completed', team_result = ?, team_score = ?, usta_url = ? WHERE id = ?")
+        .bind(teamResult, teamScore, ustaUrl, matchByDate.id)
     );
 
     await db.batch(stmts);
