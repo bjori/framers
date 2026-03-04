@@ -166,6 +166,9 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
   }
 
   const myRsvp = session ? rsvps.find((r) => r.player_id === session.player_id)?.status ?? null : null;
+  const myLineupSlot = session && lineup?.status === "confirmed"
+    ? lineupSlots.find((s) => s.player_id === session.player_id && s.is_alternate === 0)
+    : null;
 
   const matchDate = new Date(match.match_date + "T12:00:00");
   const dateStr = matchDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -237,8 +240,8 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
         )}
       </div>
 
-      {/* My RSVP */}
-      {session && !isPast && (
+      {/* My RSVP — hidden when player is in the confirmed lineup (use ack buttons instead) */}
+      {session && !isPast && !myLineupSlot && (
         <MatchRsvp slug={slug} matchId={id} currentStatus={myRsvp} />
       )}
 
