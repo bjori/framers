@@ -3,6 +3,8 @@ import { getDB } from "@/lib/db";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { checkAutoTransitions } from "@/lib/match-lifecycle";
 import { sendEmailBatch, emailTemplate } from "@/lib/email";
+import { syncUstaTeam } from "@/lib/usta-sync";
+import { recalculateElo } from "@/lib/elo-recalc";
 
 /**
  * Cron endpoint - call via GET /api/cron?key=CRON_SECRET
@@ -10,6 +12,7 @@ import { sendEmailBatch, emailTemplate } from "@/lib/email";
  * 1. Auto-transition match statuses (close RSVPs past deadline, flag low-availability)
  * 2. Send RSVP reminders for matches 2-5 days out with < 50% response (once per match per day)
  * 3. Tournament score reminders for overdue matches (once per match, then every 3 days)
+ * 4. USTA sync (scores, roster, schedule) + ELO recalculation for all active teams
  */
 export async function GET(request: NextRequest) {
   const { env } = await getCloudflareContext({ async: true });
@@ -174,6 +177,36 @@ export async function GET(request: NextRequest) {
         .bind("score_reminder", `${m.id}|${batch.length} recipients`, now.toISOString())
         .run();
       log.push(`[Score reminder] Week ${m.week} ${m.p1_name} vs ${m.p2_name}: sent ${batch.length} emails`);
+    }
+  }
+
+  // 4. USTA sync for all active/upcoming teams + ELO recalculation
+  const ustaTeams = (
+    await db.prepare("SELECT slug FROM teams WHERE status IN ('active','upcoming') AND usta_team_id IS NOT NULL")
+      .all<{ slug: string }>()
+  ).results;
+
+  let totalScorecards = 0;
+  let totalUpdated = 0;
+  for (const t of ustaTeams) {
+    try {
+      const result = await syncUstaTeam(db, t.slug);
+      totalScorecards += result.scorecards;
+      totalUpdated += result.updated;
+      if (result.updated > 0 || result.rosterSynced > 0) {
+        log.push(`[USTA sync] ${t.slug}: ${result.scorecards} scorecards, ${result.updated} updated, ${result.rosterSynced} rostered`);
+      }
+    } catch (e) {
+      log.push(`[USTA sync] ${t.slug}: error — ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  if (totalUpdated > 0) {
+    try {
+      const eloResult = await recalculateElo(db);
+      log.push(`[ELO] recalculated: ${eloResult.eloUpdates} updates (${eloResult.tournamentMatches} tourney, ${eloResult.leagueResults} league)`);
+    } catch (e) {
+      log.push(`[ELO] error — ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
