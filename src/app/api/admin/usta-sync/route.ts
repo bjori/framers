@@ -112,6 +112,34 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Sync USTA roster — extract player names from Team Roster section
+  const rosterNames: string[] = [];
+  const rosterSection = teamHtml.indexOf("Team Roster");
+  if (rosterSection > -1) {
+    const rosterHtml = teamHtml.substring(rosterSection);
+    const rosterRegex = /playermatches\.asp\?id=\d+">([^<]+)<\/a>/gi;
+    let rm;
+    while ((rm = rosterRegex.exec(rosterHtml)) !== null) {
+      rosterNames.push(rm[1].trim());
+    }
+  }
+
+  const rosterPlayerIds = rosterNames
+    .map((name) => resolvePlayer(name))
+    .filter((id): id is string => id !== null);
+
+  if (rosterPlayerIds.length > 0) {
+    await db.prepare(
+      "UPDATE team_memberships SET usta_registered = 0 WHERE team_id = ? AND active = 1"
+    ).bind(team.id).run();
+
+    for (const pid of rosterPlayerIds) {
+      await db.prepare(
+        "UPDATE team_memberships SET usta_registered = 1 WHERE team_id = ? AND player_id = ?"
+      ).bind(team.id, pid).run();
+    }
+  }
+
   // Extract scorecard IDs (handle both &amp; and & encoded)
   const scorecardIds: { id: string; leagueParam: string }[] = [];
   const scRegex1 = /scorecard\.asp\?id=(\d+)&amp;l=([^"&\s]+)/g;
@@ -254,12 +282,14 @@ export async function POST(request: NextRequest) {
   }
 
   const updatedCount = results.filter((r) => r.lineCount > 0).length;
-  track("usta_synced", { playerId: session.player_id, detail: `scorecards:${scorecardIds.length},updated:${updatedCount}` });
+  track("usta_synced", { playerId: session.player_id, detail: `scorecards:${scorecardIds.length},updated:${updatedCount},roster:${rosterPlayerIds.length}` });
 
   return NextResponse.json({
     ok: true,
     scorecards: scorecardIds.length,
     updated: updatedCount,
+    rosterSynced: rosterPlayerIds.length,
+    rosterNames,
     details: results,
   });
 }
