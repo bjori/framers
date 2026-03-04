@@ -102,17 +102,20 @@ export async function POST(
     // Upsert lineup
     let lineupId = (await db.prepare("SELECT id FROM lineups WHERE match_id = ?").bind(body.matchId).first<{ id: string }>())?.id;
 
-    // Capture existing acknowledgments so we can preserve them for players staying in the lineup
     const prevAcks = new Map<string, { acknowledged: number | null; acknowledged_at: string | null }>();
+    const prevPlayerIds = new Set<string>();
     if (lineupId) {
       const existing = (
         await db
-          .prepare("SELECT player_id, acknowledged, acknowledged_at FROM lineup_slots WHERE lineup_id = ? AND acknowledged IS NOT NULL")
+          .prepare("SELECT player_id, is_alternate, acknowledged, acknowledged_at FROM lineup_slots WHERE lineup_id = ?")
           .bind(lineupId)
-          .all<{ player_id: string; acknowledged: number | null; acknowledged_at: string | null }>()
+          .all<{ player_id: string; is_alternate: number; acknowledged: number | null; acknowledged_at: string | null }>()
       ).results;
       for (const row of existing) {
-        prevAcks.set(row.player_id, { acknowledged: row.acknowledged, acknowledged_at: row.acknowledged_at });
+        if (row.is_alternate === 0) prevPlayerIds.add(row.player_id);
+        if (row.acknowledged != null) {
+          prevAcks.set(row.player_id, { acknowledged: row.acknowledged, acknowledged_at: row.acknowledged_at });
+        }
       }
 
       await db.prepare("DELETE FROM lineup_slots WHERE lineup_id = ?").bind(lineupId).run();
@@ -141,67 +144,93 @@ export async function POST(
 
       if (matchInfo) {
         const dateStr = new Date(matchInfo.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-        const playerIds = body.slots.map((s) => s.playerId);
-        const uniqueIds = [...new Set(playerIds)];
+        const starterCount = format.singles + format.doubles * 2;
+        const newPlayerIds = new Set(body.slots.slice(0, starterCount).map((s) => s.playerId));
+        const isReconfirm = prevPlayerIds.size > 0;
+        const addedIds = [...newPlayerIds].filter((id) => !prevPlayerIds.has(id));
+        const removedIds = [...prevPlayerIds].filter((id) => !newPlayerIds.has(id));
 
-        const players = (
-          await db.prepare(
-            `SELECT id, name, email FROM players WHERE id IN (${uniqueIds.map(() => "?").join(",")})`
-          ).bind(...uniqueIds).all<{ id: string; name: string; email: string }>()
-        ).results;
+        const allRelevantIds = isReconfirm
+          ? [...new Set([...addedIds, ...removedIds])]
+          : [...new Set(body.slots.map((s) => s.playerId))];
 
-        const lineupHtml = body.slots.map((s) => {
-          const p = players.find((pl) => pl.id === s.playerId);
-          return `<li><strong>${s.position}</strong>: ${p?.name ?? "TBD"}</li>`;
-        }).join("");
+        if (allRelevantIds.length > 0) {
+          const players = (
+            await db.prepare(
+              `SELECT id, name, email FROM players WHERE id IN (${allRelevantIds.map(() => "?").join(",")})`
+            ).bind(...allRelevantIds).all<{ id: string; name: string; email: string }>()
+          ).results;
 
-        let timeStr = "";
-        if (matchInfo.match_time) {
-          const [h, m] = matchInfo.match_time.split(":").map(Number);
-          timeStr = `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+          const allSlotPlayers = (
+            await db.prepare(
+              `SELECT id, name FROM players WHERE id IN (${[...new Set(body.slots.map((s) => s.playerId))].map(() => "?").join(",")})`
+            ).bind(...[...new Set(body.slots.map((s) => s.playerId))]).all<{ id: string; name: string }>()
+          ).results;
+
+          const lineupHtml = body.slots.map((s) => {
+            const p = allSlotPlayers.find((pl) => pl.id === s.playerId);
+            return `<li><strong>${s.position}</strong>: ${p?.name ?? "TBD"}</li>`;
+          }).join("");
+
+          let timeStr = "";
+          if (matchInfo.match_time) {
+            const [h, m] = matchInfo.match_time.split(":").map(Number);
+            timeStr = `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+          }
+
+          const logisticsHtml = `
+            <table role="presentation" style="width: 100%; margin: 16px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0;">
+              <tr>
+                <td style="padding: 12px 16px; border-right: 1px solid #e2e8f0; width: 50%;">
+                  <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">When</p>
+                  <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${dateStr}${timeStr ? ` · ${timeStr}` : ""}</p>
+                </td>
+                <td style="padding: 12px 16px; width: 50%;">
+                  <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">Where</p>
+                  <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${matchInfo.location || "TBD"}</p>
+                </td>
+              </tr>
+              ${matchInfo.notes ? `<tr><td colspan="2" style="padding: 8px 16px; border-top: 1px solid #e2e8f0;"><p style="margin: 0; font-size: 13px; color: #475569;">${matchInfo.notes}</p></td></tr>` : ""}
+            </table>`;
+
+          const matchUrl = `https://framers.app/team/${slug}/match/${body.matchId}`;
+          const addedSet = new Set(addedIds);
+          const removedSet = new Set(removedIds);
+
+          const batch = players.map((p) => {
+            if (removedSet.has(p.id)) {
+              return {
+                to: p.email,
+                subject: `Lineup update: ${matchInfo!.opponent_team} on ${dateStr}`,
+                html: emailTemplate(
+                  `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Lineup change, ${p.name.split(" ")[0]}</h2>
+                   <p>You've been <strong>removed from the lineup</strong> for <strong>${matchInfo!.opponent_team}</strong> (${matchInfo!.is_home ? "Home" : "Away"}) on ${dateStr}.</p>
+                   ${logisticsHtml}
+                   <p style="color: #64748b;">If you think this is a mistake, reach out to the captain.</p>`,
+                  { heading: "Lineup Updated", ctaUrl: matchUrl, ctaLabel: "View Match" }
+                ),
+              };
+            }
+            const myPositions = body.slots!.filter((s) => s.playerId === p.id).map((s) => s.position).join(", ");
+            return {
+              to: p.email,
+              subject: `${isReconfirm && addedSet.has(p.id) ? "You've been added: " : "Lineup confirmed: "}${matchInfo!.opponent_team} on ${dateStr}`,
+              html: emailTemplate(
+                `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">You're playing, ${p.name.split(" ")[0]}!</h2>
+                 <p>The lineup for <strong>${matchInfo!.opponent_team}</strong> (${matchInfo!.is_home ? "Home" : "Away"}) has been ${isReconfirm ? "updated" : "confirmed"}.</p>
+                 ${logisticsHtml}
+                 <p style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; font-weight: 600; color: #166534;">
+                   Your position: ${myPositions}
+                 </p>
+                 <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0;">Full Lineup</h3>
+                 <ul style="padding-left: 20px; color: #334155;">${lineupHtml}</ul>
+                 <p style="margin-top: 20px; font-size: 14px; font-weight: 600; color: #0c4a6e;">Please confirm you can make it:</p>`,
+                { heading: isReconfirm ? "Lineup Updated" : "Lineup Confirmed", ctaUrl: matchUrl, ctaLabel: "Confirm I'll Be There" }
+              ),
+            };
+          });
+          await sendEmailBatch(batch);
         }
-
-        const logisticsHtml = `
-          <table role="presentation" style="width: 100%; margin: 16px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0;">
-            <tr>
-              <td style="padding: 12px 16px; border-right: 1px solid #e2e8f0; width: 50%;">
-                <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">When</p>
-                <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${dateStr}${timeStr ? ` · ${timeStr}` : ""}</p>
-              </td>
-              <td style="padding: 12px 16px; width: 50%;">
-                <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">Where</p>
-                <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${matchInfo.location || "TBD"}</p>
-              </td>
-            </tr>
-            ${matchInfo.notes ? `<tr><td colspan="2" style="padding: 8px 16px; border-top: 1px solid #e2e8f0;"><p style="margin: 0; font-size: 13px; color: #475569;">${matchInfo.notes}</p></td></tr>` : ""}
-          </table>`;
-
-        const matchUrl = `https://framers.app/team/${slug}/match/${body.matchId}`;
-
-        const batch = players.map((p) => {
-          const myPositions = body.slots!.filter((s) => s.playerId === p.id).map((s) => s.position).join(", ");
-          return {
-            to: p.email,
-            subject: `Lineup confirmed: ${matchInfo!.opponent_team} on ${dateStr}`,
-            html: emailTemplate(
-              `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">You're playing, ${p.name.split(" ")[0]}!</h2>
-               <p>The lineup for <strong>${matchInfo!.opponent_team}</strong> (${matchInfo!.is_home ? "Home" : "Away"}) has been confirmed.</p>
-               ${logisticsHtml}
-               <p style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; font-weight: 600; color: #166534;">
-                 Your position: ${myPositions}
-               </p>
-               <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0;">Full Lineup</h3>
-               <ul style="padding-left: 20px; color: #334155;">${lineupHtml}</ul>
-               <p style="margin-top: 20px; font-size: 14px; font-weight: 600; color: #0c4a6e;">Please confirm you can make it:</p>`,
-              {
-                heading: "Lineup Confirmed",
-                ctaUrl: matchUrl,
-                ctaLabel: "Confirm I'll Be There",
-              }
-            ),
-          };
-        });
-        await sendEmailBatch(batch);
       }
     }
 

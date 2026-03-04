@@ -5,7 +5,6 @@ import Link from "next/link";
 import { LineupGenerator } from "@/components/lineup-generator";
 import { LineupEditor } from "@/components/lineup-editor";
 import { MatchRsvp } from "@/components/match-rsvp";
-import { ConfirmLineup } from "@/components/confirm-lineup";
 import { MatchDetailsEditor } from "@/components/match-details-editor";
 import { LineupAcknowledge } from "@/components/lineup-acknowledge";
 
@@ -116,7 +115,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
 
   // Query all active team members for the lineup editor's available-players pool
   const positionOrder: Record<string, number> = { S1: 0, S2: 1, D1A: 2, D1B: 3, D2A: 4, D2B: 5, D3A: 6, D3B: 7 };
-  let editableSlots: { position: string; playerId: string | null; playerName: string | null; singlesElo: number; doublesElo: number }[] = [];
+  let editableSlots: { position: string; playerId: string | null; playerName: string | null; singlesElo: number; doublesElo: number; acknowledged: number | null; withdrawnName: string | null }[] = [];
   let poolPlayers: { id: string; name: string; singlesElo: number; doublesElo: number; rsvpStatus: string | null }[] = [];
 
   if (canManage && !isPast && lineup) {
@@ -142,6 +141,8 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
         playerName: s.is_alternate === -1 ? null : s.player_name,
         singlesElo: s.is_alternate === -1 ? 0 : s.singles_elo,
         doublesElo: s.is_alternate === -1 ? 0 : s.doubles_elo,
+        acknowledged: s.acknowledged,
+        withdrawnName: s.is_alternate === -1 ? s.player_name : null,
       }))
       .sort((a, b) => (positionOrder[a.position] ?? 99) - (positionOrder[b.position] ?? 99));
 
@@ -275,8 +276,26 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
         </section>
       )}
 
-      {/* Lineup */}
-      {lineup && lineupSlots.length > 0 && (
+      {/* Lineup — unified view for captains (editor with view/edit toggle) */}
+      {canManage && !isPast && lineup && editableSlots.length > 0 && (
+        <>
+          <LineupEditor slug={slug} matchId={id} slots={editableSlots} poolPlayers={poolPlayers} lineupStatus={lineup.status} />
+          {(() => {
+            const mySlot = session && lineup.status === "confirmed"
+              ? lineupSlots.find((s) => s.player_id === session.player_id && s.is_alternate === 0)
+              : null;
+            if (!mySlot) return null;
+            return (
+              <div className="mt-3">
+                <LineupAcknowledge slug={slug} matchId={id} position={mySlot.position} currentAck={mySlot.acknowledged} />
+              </div>
+            );
+          })()}
+        </>
+      )}
+
+      {/* Lineup — read-only for non-captains and past matches */}
+      {lineup && lineupSlots.length > 0 && (!canManage || isPast) && (
         <section>
           <h2 className="text-lg font-semibold mb-3">
             Lineup
@@ -287,7 +306,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
             </span>
           </h2>
           <div className="bg-surface-alt rounded-xl border border-border overflow-hidden divide-y divide-border">
-            {lineupSlots.filter((s) => s.is_alternate >= 0 && s.is_alternate !== 1).map((s) => (
+            {lineupSlots.filter((s) => s.is_alternate === 0 || s.is_alternate === -1).map((s) => (
               <div key={s.position} className={`flex items-center justify-between px-4 py-3 ${s.is_alternate === -1 ? "bg-danger/5" : ""}`}>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold uppercase text-slate-400 w-8">{s.position}</span>
@@ -318,18 +337,6 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
               </div>
             )}
           </div>
-          {lineupSlots.some((s) => s.is_alternate === -1) && canManage && !isPast && (
-            <p className="text-xs text-danger mt-2">
-              A player has withdrawn. Pick a replacement from the editor below.
-            </p>
-          )}
-          {canManage && lineup.status === "draft" && isPast && (
-            <ConfirmLineup
-              slug={slug}
-              matchId={id}
-              slots={lineupSlots.filter((s) => s.is_alternate === 0).map((s) => ({ position: s.position, playerId: s.player_id }))}
-            />
-          )}
           {(() => {
             const mySlot = session && lineup.status === "confirmed" && !isPast
               ? lineupSlots.find((s) => s.player_id === session.player_id && s.is_alternate === 0)
@@ -337,38 +344,11 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
             if (!mySlot) return null;
             return (
               <div className="mt-3">
-                <LineupAcknowledge
-                  slug={slug}
-                  matchId={id}
-                  position={mySlot.position}
-                  currentAck={mySlot.acknowledged}
-                />
+                <LineupAcknowledge slug={slug} matchId={id} position={mySlot.position} currentAck={mySlot.acknowledged} />
               </div>
             );
           })()}
-          {canManage && lineup.status === "confirmed" && !isPast && (
-            <div className="mt-3 text-xs text-slate-500">
-              {(() => {
-                const starters = lineupSlots.filter((s) => s.is_alternate === 0);
-                const confirmed = starters.filter((s) => s.acknowledged === 1).length;
-                const pending = starters.filter((s) => s.acknowledged === null).length;
-                const declined = starters.filter((s) => s.acknowledged === 0).length;
-                return (
-                  <span>
-                    Confirmations: {confirmed}/{starters.length} confirmed
-                    {pending > 0 && <span className="text-amber-600 dark:text-amber-400"> · {pending} pending</span>}
-                    {declined > 0 && <span className="text-danger"> · {declined} declined</span>}
-                  </span>
-                );
-              })()}
-            </div>
-          )}
         </section>
-      )}
-
-      {/* Lineup Editor for captains/admins — edit existing lineup, sub players, reorder */}
-      {canManage && !isPast && lineup && editableSlots.length > 0 && (
-        <LineupEditor slug={slug} matchId={id} slots={editableSlots} poolPlayers={poolPlayers} />
       )}
 
       {/* Lineup Generator — only for first-time lineup creation */}
@@ -376,41 +356,43 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
         <LineupGenerator slug={slug} matchId={id} />
       )}
 
-      {/* RSVP Responses */}
-      <section>
-        <h2 className="text-lg font-semibold mb-3">
-          Availability
-          <span className="text-sm font-normal text-slate-500 ml-2">
-            {yesCount} yes{yesCount < neededPlayers ? <span className="text-danger"> (need {neededPlayers})</span> : ""}, {maybeCount} maybe
-          </span>
-        </h2>
-        {rsvps.length === 0 ? (
-          <p className="text-sm text-slate-500">No responses yet.</p>
-        ) : (
-          <div className="bg-surface-alt rounded-xl border border-border overflow-hidden divide-y divide-border">
-            {rsvps.map((r) => (
-              <div key={r.player_id} className="flex items-center justify-between px-4 py-2.5">
-                <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${
-                    r.status === "yes" ? "bg-accent" : r.status === "maybe" ? "bg-warning" : "bg-danger"
-                  }`} />
-                  <Link href={`/player/${r.player_id}`} className="text-sm font-medium text-primary-light hover:underline">
-                    {r.name}
-                  </Link>
+      {/* Availability — hidden for captains when lineup exists (editor pool replaces it) */}
+      {!(canManage && !isPast && lineup) && (
+        <section>
+          <h2 className="text-lg font-semibold mb-3">
+            Availability
+            <span className="text-sm font-normal text-slate-500 ml-2">
+              {yesCount} yes{yesCount < neededPlayers ? <span className="text-danger"> (need {neededPlayers})</span> : ""}, {maybeCount} maybe
+            </span>
+          </h2>
+          {rsvps.length === 0 ? (
+            <p className="text-sm text-slate-500">No responses yet.</p>
+          ) : (
+            <div className="bg-surface-alt rounded-xl border border-border overflow-hidden divide-y divide-border">
+              {rsvps.map((r) => (
+                <div key={r.player_id} className="flex items-center justify-between px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${
+                      r.status === "yes" ? "bg-accent" : r.status === "maybe" ? "bg-warning" : "bg-danger"
+                    }`} />
+                    <Link href={`/player/${r.player_id}`} className="text-sm font-medium text-primary-light hover:underline">
+                      {r.name}
+                    </Link>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">{r.singles_elo}</span>
+                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                      r.status === "yes" ? "bg-accent/10 text-accent" :
+                      r.status === "maybe" ? "bg-warning/10 text-warning" :
+                      "bg-danger/10 text-danger"
+                    }`}>{r.status}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400">{r.singles_elo}</span>
-                  <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                    r.status === "yes" ? "bg-accent/10 text-accent" :
-                    r.status === "maybe" ? "bg-warning/10 text-warning" :
-                    "bg-danger/10 text-danger"
-                  }`}>{r.status}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
