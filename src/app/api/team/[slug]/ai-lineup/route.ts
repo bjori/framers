@@ -489,8 +489,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        return NextResponse.json({ error: "AI is rate-limited right now — try again in a minute." }, { status: 429 });
+      }
       const errText = await response.text();
-      return NextResponse.json({ error: `OpenAI error: ${response.status}`, detail: errText }, { status: 502 });
+      return NextResponse.json({ error: `AI service error (${response.status}). Try again shortly.`, detail: errText }, { status: 502 });
     }
 
     const data = (await response.json()) as {
