@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession, canAccessAdmin } from "@/lib/auth";
+import { track } from "@/lib/analytics";
 
 const USTA_BASE = "https://leagues.ustanorcal.com";
 
@@ -252,10 +253,13 @@ export async function POST(request: NextRequest) {
     results.push({ scorecardId: sc.id, matchDate: matchDateStr, lineCount: lines.length, matchId: matchByDate.id });
   }
 
+  const updatedCount = results.filter((r) => r.lineCount > 0).length;
+  track("usta_synced", { playerId: session.player_id, detail: `scorecards:${scorecardIds.length},updated:${updatedCount}` });
+
   return NextResponse.json({
     ok: true,
     scorecards: scorecardIds.length,
-    updated: results.filter((r) => r.lineCount > 0).length,
+    updated: updatedCount,
     details: results,
   });
 }

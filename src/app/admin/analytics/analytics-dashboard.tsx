@@ -41,7 +41,7 @@ interface AnalyticsData {
 
 const EVENT_LABELS: Record<string, string> = {
   login_requested: "Login Requested",
-  login_failed: "Login Failed (Unknown Email)",
+  login_failed: "Login Failed",
   login_success: "Login Success",
   login_verify_failed: "Magic Link Invalid",
   rsvp_league: "League RSVP",
@@ -54,6 +54,18 @@ const EVENT_LABELS: Record<string, string> = {
   "email.clicked": "Clicked",
   "email.bounced": "Bounced",
   "email.complained": "Spam Report",
+  lineup_generated: "Lineup Generated",
+  lineup_saved: "Lineup Saved",
+  lineup_confirmed: "Lineup Confirmed",
+  lineup_confirmed_player: "Player Confirmed",
+  lineup_declined_player: "Player Declined",
+  match_details_edited: "Match Edited",
+  usta_synced: "USTA Synced",
+  elo_recalculated: "ELO Recalculated",
+  payment_recorded: "Payment Recorded",
+  announcement_sent: "Announcement Sent",
+  admin_impersonate: "Impersonation",
+  preferences_updated: "Preferences Updated",
 };
 
 const EVENT_COLORS: Record<string, string> = {
@@ -71,7 +83,57 @@ const EVENT_COLORS: Record<string, string> = {
   "email.clicked": "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-300",
   "email.bounced": "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
   "email.complained": "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
+  lineup_generated: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  lineup_saved: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  lineup_confirmed: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
+  lineup_confirmed_player: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
+  lineup_declined_player: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+  match_details_edited: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300",
+  usta_synced: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
+  elo_recalculated: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
+  payment_recorded: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+  announcement_sent: "bg-pink-100 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300",
+  admin_impersonate: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
+  preferences_updated: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
 };
+
+function formatDetail(event: string, detail: string | null): string {
+  if (!detail) return "—";
+  const parts: Record<string, string> = {};
+  for (const seg of detail.split(",")) {
+    const [k, ...rest] = seg.split(":");
+    if (k && rest.length) parts[k] = rest.join(":");
+  }
+
+  switch (event) {
+    case "rsvp_league":
+      return `Match ${parts.match ?? detail.split(":")[0] ?? "?"}: ${detail.split(":").pop() ?? "?"}`;
+    case "lineup_generated":
+    case "lineup_saved":
+    case "lineup_confirmed":
+      return `Match ${parts.match ?? "?"}`;
+    case "lineup_confirmed_player":
+      return `Match ${parts.match ?? "?"}, ${parts.pos ?? ""}`;
+    case "lineup_declined_player":
+      return `Match ${parts.match ?? "?"}, ${parts.pos ?? ""} — declined`;
+    case "match_details_edited":
+      return `Match ${parts.match ?? "?"}`;
+    case "usta_synced":
+      return `${parts.scorecards ?? "?"} scorecards, ${parts.updated ?? "?"} updated`;
+    case "elo_recalculated":
+      return `${parts.tourney ?? 0} tourney + ${parts.league ?? 0} league, ${parts.updates ?? 0} updates`;
+    case "payment_recorded":
+      return `Player ${parts.player ?? "?"}, $${((Number(parts.amount) || 0) / 100).toFixed(2)}`;
+    case "announcement_sent":
+      return `${parts.recipients ?? "?"} recipients — ${parts.subject ?? ""}`;
+    case "admin_impersonate":
+      return detail === "stopped" ? "Stopped impersonation" : `Viewing as ${parts.target ?? "?"}`;
+    case "preferences_updated":
+      return `Doubles only: ${parts.doublesOnly ?? "?"}`;
+    default:
+      return detail;
+  }
+}
 
 function EventBadge({ event }: { event: string }) {
   const color = EVENT_COLORS[event] ?? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
@@ -278,7 +340,7 @@ export default function AnalyticsDashboard() {
                           <span className="text-slate-400">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-2 text-slate-500 dark:text-slate-400 text-xs font-mono max-w-[200px] truncate">{ev.detail ?? "—"}</td>
+                      <td className="px-4 py-2 text-slate-500 dark:text-slate-400 text-xs max-w-[250px] truncate">{formatDetail(ev.event, ev.detail)}</td>
                       <td className="px-4 py-2 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{relTime(ev.created_at)}</td>
                     </tr>
                   ))}

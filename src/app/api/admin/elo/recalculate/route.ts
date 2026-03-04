@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession, canAccessAdmin } from "@/lib/auth";
 import { calculateElo, seedElo } from "@/lib/elo";
+import { track } from "@/lib/analytics";
 
 const ASSUMED_OPPONENT_ELO = 1500;
 
@@ -181,6 +182,8 @@ export async function POST() {
   for (let i = 0; i < updateBatch.length; i += 20) {
     await db.batch(updateBatch.slice(i, i + 20));
   }
+
+  track("elo_recalculated", { playerId: session.player_id, detail: `tourney:${tourneyMatches.length},league:${leagueProcessed},updates:${eloInserts.length}` });
 
   return NextResponse.json({
     ok: true,

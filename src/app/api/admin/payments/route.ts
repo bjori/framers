@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession, canAccessAdmin } from "@/lib/auth";
+import { track } from "@/lib/analytics";
 
 export async function GET() {
   const session = await getSession();
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
     await db.prepare(
       "INSERT INTO payments (id, player_id, fee_id, amount_cents, paid_at, recorded_by, notes) VALUES (?,?,?,?,?,?,?)"
     ).bind(id, body.playerId, body.feeId, body.amountCents, body.paidAt || new Date().toISOString(), session.player_id, body.notes || null).run();
+    track("payment_recorded", { playerId: session.player_id, detail: `player:${body.playerId},amount:${body.amountCents}` });
     return NextResponse.json({ ok: true, paymentId: id });
   }
 

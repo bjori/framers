@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { optimizeLineup, type AvailablePlayer } from "@/lib/lineup-optimizer";
 import { sendEmailBatch, emailTemplate } from "@/lib/email";
 import { transitionMatch } from "@/lib/match-lifecycle";
+import { track } from "@/lib/analytics";
 
 export async function POST(
   request: NextRequest,
@@ -91,6 +92,7 @@ export async function POST(
     });
 
     const result = optimizeLineup(players, format);
+    track("lineup_generated", { playerId: session.player_id, detail: `match:${body.matchId}` });
     return NextResponse.json({ lineup: result });
   }
 
@@ -234,6 +236,8 @@ export async function POST(
       }
     }
 
+    const trackEvent = body.action === "confirm" ? "lineup_confirmed" : "lineup_saved";
+    track(trackEvent, { playerId: session.player_id, detail: `match:${body.matchId}` });
     return NextResponse.json({ ok: true, lineupId });
   }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { track } from "@/lib/analytics";
 
 export async function PATCH(
   request: NextRequest,
@@ -39,5 +40,6 @@ export async function PATCH(
     .bind(body.match_time ?? null, body.location ?? null, body.notes ?? null, id, team.id)
     .run();
 
+  track("match_details_edited", { playerId: session.player_id, detail: `match:${id}` });
   return NextResponse.json({ ok: true });
 }

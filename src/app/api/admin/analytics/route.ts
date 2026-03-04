@@ -16,7 +16,7 @@ export async function GET() {
         .prepare(
           `SELECT event, count(*) as cnt
            FROM app_events
-           WHERE created_at > datetime('now', '-7 days')
+           WHERE created_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-7 days')
            GROUP BY event ORDER BY cnt DESC`
         )
         .all<{ event: string; cnt: number }>(),
@@ -25,7 +25,7 @@ export async function GET() {
         .prepare(
           `SELECT event, count(*) as cnt
            FROM app_events
-           WHERE created_at > datetime('now', '-30 days')
+           WHERE created_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-30 days')
            GROUP BY event ORDER BY cnt DESC`
         )
         .all<{ event: string; cnt: number }>(),
@@ -34,7 +34,8 @@ export async function GET() {
         .prepare(
           `SELECT e.event, e.player_id, p.name as player_name, e.detail, e.ip, e.created_at
            FROM app_events e LEFT JOIN players p ON p.id = e.player_id
-           ORDER BY e.created_at DESC LIMIT 50`
+           WHERE e.event NOT IN ('email.delivered','email.opened','email.clicked','email.bounced','email.complained')
+           ORDER BY e.created_at DESC LIMIT 100`
         )
         .all<{
           event: string;
@@ -56,9 +57,9 @@ export async function GET() {
 
       db
         .prepare(
-          `SELECT date(created_at) as day, count(*) as cnt
+          `SELECT substr(created_at, 1, 10) as day, count(*) as cnt
            FROM app_events
-           WHERE created_at > datetime('now', '-30 days')
+           WHERE created_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-30 days')
            GROUP BY day ORDER BY day DESC`
         )
         .all<{ day: string; cnt: number }>(),
@@ -67,7 +68,7 @@ export async function GET() {
         .prepare(
           `SELECT e.player_id, p.name as player_name, count(*) as cnt
            FROM app_events e JOIN players p ON p.id = e.player_id
-           WHERE e.created_at > datetime('now', '-30 days') AND e.player_id IS NOT NULL
+           WHERE e.created_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-30 days') AND e.player_id IS NOT NULL
            GROUP BY e.player_id ORDER BY cnt DESC LIMIT 15`
         )
         .all<{ player_id: string; player_name: string; cnt: number }>(),

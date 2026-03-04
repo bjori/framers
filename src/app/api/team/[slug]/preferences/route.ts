@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { track } from "@/lib/analytics";
 
 export async function POST(
   request: NextRequest,
@@ -33,6 +34,7 @@ export async function POST(
     .bind(JSON.stringify(updated), session.player_id, team.id)
     .run();
 
+  track("preferences_updated", { playerId: session.player_id, detail: `team:${slug},doublesOnly:${updated.doublesOnly}` });
   return NextResponse.json({ ok: true, preferences: updated });
 }
 

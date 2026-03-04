@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession, canAccessAdmin } from "@/lib/auth";
 import { sendEmail, sendEmailBatch, emailTemplate } from "@/lib/email";
+import { track } from "@/lib/analytics";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -92,6 +93,8 @@ export async function POST(request: NextRequest) {
     )
     .bind(announcementId, body.teamId, body.subject, bodyHtml, session.player_id, sentCount)
     .run();
+
+  track("announcement_sent", { playerId: session.player_id, detail: `team:${body.teamId},recipients:${sentCount},subject:${body.subject}` });
 
   return NextResponse.json({
     ok: true,

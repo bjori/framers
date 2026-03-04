@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { sendEmail, emailTemplate } from "@/lib/email";
+import { track } from "@/lib/analytics";
 
 export async function POST(
   request: NextRequest,
@@ -74,6 +75,9 @@ export async function POST(
       });
     }
   }
+
+  const trackEvent = body.response === "confirm" ? "lineup_confirmed_player" : "lineup_declined_player";
+  track(trackEvent, { playerId: session.player_id, detail: `match:${body.matchId},pos:${slot.position}` });
 
   return NextResponse.json({ ok: true, response: body.response });
 }
