@@ -225,7 +225,7 @@ export async function POST(
                  <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0;">Full Lineup</h3>
                  <ul style="padding-left: 20px; color: #334155;">${lineupHtml}</ul>
                  <p style="margin-top: 20px; font-size: 14px; font-weight: 600; color: #0c4a6e;">Please confirm you can make it:</p>`,
-                { heading: isReconfirm ? "Lineup Updated" : "Lineup Confirmed", ctaUrl: matchUrl, ctaLabel: "Confirm I'll Be There" }
+                { heading: isReconfirm ? "Lineup Updated" : "Lineup Confirmed", ctaUrl: matchUrl, ctaLabel: "Confirm I'll Be There", secondaryCtaUrl: matchUrl, secondaryCtaLabel: "Shit Happened, Can't Make It" }
               ),
             };
           });
