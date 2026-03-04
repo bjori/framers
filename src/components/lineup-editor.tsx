@@ -449,7 +449,7 @@ export function LineupEditor({
                   <span className="text-sm font-medium">{p.name}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 font-mono">{p.singlesElo}</span>
+                  <span className="text-[10px] text-slate-400 font-mono">{p.singlesElo}<span className="text-slate-300 dark:text-slate-600">/</span>{p.doublesElo}</span>
                   {p.rsvpStatus && (
                     <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
                       p.rsvpStatus === "yes" ? "bg-accent/10 text-accent" : p.rsvpStatus === "maybe" ? "bg-warning/10 text-warning" : p.rsvpStatus === "no" ? "bg-danger/10 text-danger" : "bg-slate-100 dark:bg-slate-800 text-slate-500"

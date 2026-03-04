@@ -252,7 +252,7 @@ export function LineupGenerator({ slug, matchId }: { slug: string; matchId: stri
                       <span className="text-sm text-slate-600 dark:text-slate-300">{a.name}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400 font-mono">{a.singlesElo}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{a.singlesElo}<span className="text-slate-300 dark:text-slate-600">/</span>{a.doublesElo ?? a.singlesElo}</span>
                       {selectedIdx !== null && (
                         <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300">
                           Sub In

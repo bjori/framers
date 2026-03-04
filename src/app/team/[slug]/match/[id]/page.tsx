@@ -14,6 +14,7 @@ interface RsvpResponse {
   status: string;
   ntrp_type: string;
   singles_elo: number;
+  doubles_elo: number;
 }
 
 interface LineupSlotRow {
@@ -49,13 +50,13 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
   const rsvps = (
     await db
       .prepare(
-        `SELECT a.player_id, a.status, p.name, p.ntrp_type, p.singles_elo
+        `SELECT a.player_id, a.status, p.name, p.ntrp_type, p.singles_elo, p.doubles_elo
          FROM availability a
          JOIN players p ON p.id = a.player_id
          WHERE a.match_id = ?
          ORDER BY
            CASE a.status WHEN 'yes' THEN 0 WHEN 'maybe' THEN 1 WHEN 'no' THEN 2 END,
-           p.singles_elo DESC`
+           MAX(p.singles_elo, p.doubles_elo) DESC`
       )
       .bind(id)
       .all<RsvpResponse>()
@@ -127,7 +128,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
            JOIN players p ON p.id = tm.player_id
            LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
            WHERE tm.team_id = ? AND tm.active = 1
-           ORDER BY p.singles_elo DESC`
+           ORDER BY MAX(p.singles_elo, p.doubles_elo) DESC`
         )
         .bind(id, team.id)
         .all<{ id: string; name: string; singles_elo: number; doubles_elo: number; rsvp_status: string | null }>()
@@ -383,7 +384,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
                     </Link>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400">{r.singles_elo}</span>
+                    <span className="text-[10px] text-slate-400 font-mono">{r.singles_elo}<span className="text-slate-300 dark:text-slate-600">/</span>{r.doubles_elo}</span>
                     <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
                       r.status === "yes" ? "bg-accent/10 text-accent" :
                       r.status === "maybe" ? "bg-warning/10 text-warning" :
