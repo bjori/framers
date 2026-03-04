@@ -516,18 +516,27 @@ export default function AdminPage() {
             onClick={async () => {
               setSyncingUsta(true);
               setMessage("");
-              const res = await fetch("/api/admin/usta-sync", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ teamSlug: "senior-framers-2026" }),
-              });
-              if (res.ok) {
-                const data = (await res.json()) as { scorecards: number; updated: number };
-                setMessage(`USTA sync: found ${data.scorecards} scorecards, updated ${data.updated} matches`);
-              } else {
-                const err = (await res.json()) as { error?: string };
-                setMessage(`USTA sync failed: ${err.error || "Unknown error"}`);
+              const teamSlugs = ["senior-framers-2026", "junior-framers-2026"];
+              const results: string[] = [];
+              for (const slug of teamSlugs) {
+                try {
+                  const res = await fetch("/api/admin/usta-sync", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ teamSlug: slug }),
+                  });
+                  if (res.ok) {
+                    const data = (await res.json()) as { scorecards: number; updated: number; rosterSynced?: number };
+                    results.push(`${slug}: ${data.scorecards} scorecards, ${data.updated} updated, ${data.rosterSynced ?? 0} rostered`);
+                  } else {
+                    const err = (await res.json()) as { error?: string };
+                    results.push(`${slug}: ${err.error || "failed"}`);
+                  }
+                } catch (e) {
+                  results.push(`${slug}: ${e instanceof Error ? e.message : "error"}`);
+                }
               }
+              setMessage(`USTA sync: ${results.join(" | ")}`);
               setSyncingUsta(false);
             }}
             disabled={syncingUsta}
