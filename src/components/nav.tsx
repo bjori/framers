@@ -34,7 +34,8 @@ export function Nav() {
   const [showImpersonate, setShowImpersonate] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const isRealAdmin = user && (user.isImpersonating || user.can_admin);
+  const showAdminMenu = user && user.can_admin && !user.isImpersonating;
+  const canImpersonate = user && (user.isImpersonating || user.can_admin);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -124,7 +125,7 @@ export function Nav() {
                 Championship
               </Link>
             )}
-            {isRealAdmin && (
+            {showAdminMenu && (
               <>
                 <div className="w-px h-5 bg-white/20 mx-1" />
                 <Link href="/admin" className={navLinkClass(pathname === "/admin")}>
@@ -190,7 +191,7 @@ export function Nav() {
                           ))}
                         </>
                       )}
-                      {isRealAdmin && (
+                      {canImpersonate && (
                         <>
                           <div className="h-px bg-slate-100 dark:bg-slate-700 mx-1 my-1" />
                           <button

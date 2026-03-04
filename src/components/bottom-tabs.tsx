@@ -80,7 +80,8 @@ export function BottomTabs() {
   const [players, setPlayers] = useState<PlayerOption[]>([]);
   const [showImpersonate, setShowImpersonate] = useState(false);
 
-  const isRealAdmin = user && (user.isImpersonating || user.can_admin);
+  const showAdminMenu = user && user.can_admin && !user.isImpersonating;
+  const canImpersonate = user && (user.isImpersonating || user.can_admin);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -190,7 +191,7 @@ export function BottomTabs() {
                 </>
               )}
 
-              {isRealAdmin && (
+              {showAdminMenu && (
                 <>
                   <div className="h-px bg-border mx-2 my-1" />
                   <Link
@@ -212,6 +213,11 @@ export function BottomTabs() {
                     </svg>
                     <span className="text-sm font-medium">Analytics</span>
                   </Link>
+                </>
+              )}
+              {canImpersonate && (
+                <>
+                  <div className="h-px bg-border mx-2 my-1" />
                   <button
                     onClick={loadPlayers}
                     className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors w-full text-left"
