@@ -2,6 +2,7 @@ import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import { TeamTabs } from "@/components/team-tabs";
+import { LineupChat } from "@/components/lineup-chat";
 import { Suspense } from "react";
 
 interface LeagueMatch {
@@ -89,6 +90,13 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
     ? "Schedule is TBD, likely available March 20th. Check back soon!"
     : undefined;
 
+  const isAdmin = session?.is_admin === 1;
+  let canManage = isAdmin;
+  if (session && !isAdmin) {
+    const membership = roster.find((r) => r.player_id === session.player_id);
+    canManage = membership?.role === "captain" || membership?.role === "co-captain";
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -118,6 +126,8 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
           emptyScheduleMessage={emptyScheduleMessage}
         />
       </Suspense>
+
+      {canManage && !isReadOnly && <LineupChat slug={slug} />}
     </div>
   );
 }

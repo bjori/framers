@@ -7,6 +7,7 @@ import { LineupEditor } from "@/components/lineup-editor";
 import { MatchRsvp } from "@/components/match-rsvp";
 import { MatchDetailsEditor } from "@/components/match-details-editor";
 import { LineupAcknowledge } from "@/components/lineup-acknowledge";
+import { LineupChat } from "@/components/lineup-chat";
 
 interface RsvpResponse {
   player_id: string;
@@ -409,6 +410,9 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
           )}
         </section>
       )}
+
+      {/* AI Lineup Assistant — floating chat for captains */}
+      {canManage && !isPast && <LineupChat slug={slug} />}
     </div>
   );
 }
