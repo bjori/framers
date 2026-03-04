@@ -1,10 +1,8 @@
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { TeamSchedule } from "@/components/team-schedule";
-import AvailabilityGrid from "@/components/availability-grid";
-import { PlayerPreferences } from "@/components/player-preferences";
+import { TeamTabs } from "@/components/team-tabs";
+import { Suspense } from "react";
 
 interface LeagueMatch {
   id: string;
@@ -66,8 +64,8 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
 
   const format = JSON.parse(team.match_format || "{}");
   const totalLines = (format.singles || 0) + (format.doubles || 0);
-  const wins = matches.filter((m: LeagueMatch) => m.team_result === "win").length;
-  const losses = matches.filter((m: LeagueMatch) => m.team_result === "loss").length;
+  const wins = matches.filter((m) => m.team_result === "win").length;
+  const losses = matches.filter((m) => m.team_result === "loss").length;
   const record = `${wins}-${losses}`;
   const isReadOnly = team.status === "completed";
   const session = await getSession();
@@ -85,8 +83,10 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
       .all<{ player_id: string; player_name: string; match_id: string; status: string | null }>()
   ).results;
 
+  const neededPlayers = (format.singles || 0) + (format.doubles || 0) * 2;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold">{team.name}</h1>
@@ -101,53 +101,17 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
         </p>
       </div>
 
-      <section>
-        <h2 className="text-lg font-semibold mb-3">Roster ({roster.length})</h2>
-        <div className="bg-surface-alt rounded-xl border border-border overflow-hidden">
-          <div className="divide-y divide-border">
-            {roster.map((p: TeamMember) => (
-              <div key={p.player_id} className="flex items-center justify-between px-4 py-2.5">
-                <div className="flex items-center gap-2">
-                  <Link href={`/player/${p.player_id}`} className="font-medium text-primary-light hover:underline">
-                    {p.name}
-                  </Link>
-                  {(p.role === "captain" || p.role === "co-captain") && (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300">
-                      {p.role === "captain" ? "Captain" : "Co-Captain"}
-                    </span>
-                  )}
-                  {(() => { try { return JSON.parse(p.preferences || "{}").doublesOnly; } catch { return false; } })() && (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-warning/10 text-warning">
-                      Doubles
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-slate-400 font-mono" title="Singles / Doubles ELO">
-                    {p.singles_elo}<span className="text-slate-300 dark:text-slate-600">/</span>{p.doubles_elo}
-                  </span>
-                  <span className="text-xs text-slate-500">{p.ntrp_type}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {!isReadOnly && isMember && (
-        <PlayerPreferences slug={slug} />
-      )}
-
-      {!isReadOnly && (
-        <AvailabilityGrid
-          roster={roster.map((p) => ({ player_id: p.player_id, name: p.name }))}
-          matches={matches.map((m) => ({ id: m.id, match_date: m.match_date, opponent_team: m.opponent_team }))}
+      <Suspense>
+        <TeamTabs
+          slug={slug}
+          matches={matches}
+          roster={roster}
           availability={availability}
-          neededPlayers={(format.singles || 0) + (format.doubles || 0) * 2}
+          isReadOnly={isReadOnly}
+          isMember={isMember}
+          neededPlayers={neededPlayers}
         />
-      )}
-
-      <TeamSchedule matches={matches} isReadOnly={isReadOnly} slug={slug} />
+      </Suspense>
     </div>
   );
 }

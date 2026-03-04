@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 
 interface NavData {
   teams: { name: string; slug: string; status: string }[];
@@ -24,21 +25,14 @@ interface PlayerOption {
   name: string;
 }
 
-function StatusDot({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    active: "bg-accent",
-    completed: "bg-slate-400",
-    upcoming: "bg-warning",
-  };
-  return <span className={`inline-block w-2 h-2 rounded-full ${colors[status] ?? "bg-slate-400"}`} />;
-}
-
 export function Nav() {
-  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
   const [nav, setNav] = useState<NavData | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [players, setPlayers] = useState<PlayerOption[]>([]);
   const [showImpersonate, setShowImpersonate] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const isRealAdmin = user && (user.isImpersonating || user.can_admin);
 
@@ -53,10 +47,25 @@ export function Nav() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    setUserMenuOpen(false);
+    setShowImpersonate(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+        setShowImpersonate(false);
+      }
+    }
+    if (userMenuOpen) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [userMenuOpen]);
+
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     setUser(null);
-    setOpen(false);
     window.location.href = "/login";
   }
 
@@ -79,175 +88,141 @@ export function Nav() {
     }
   }
 
+  const activeTeam = nav?.teams.find((t) => t.status === "active");
+  const activeTournament = nav?.tournaments.find((t) => t.status === "active");
   const firstName = user?.name?.split(" ")[0] ?? "";
+
+  function navLinkClass(active: boolean) {
+    return `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+      active
+        ? "bg-white/15 text-white"
+        : "text-white/70 hover:text-white hover:bg-white/10"
+    }`;
+  }
 
   return (
     <header className="bg-primary text-white sticky top-0 z-50">
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-14">
-          <Link href="/dashboard" className="font-bold text-lg tracking-tight">
+          <Link href="/dashboard" className="font-bold text-lg tracking-tight shrink-0">
             Greenbrook Framers
           </Link>
 
-          <div className="flex items-center gap-3">
+          {/* Desktop nav links */}
+          <div className="hidden sm:flex items-center gap-1 ml-6 flex-1 min-w-0">
+            <Link href="/dashboard" className={navLinkClass(pathname === "/dashboard" || pathname === "/")}>
+              Home
+            </Link>
+            {activeTeam && (
+              <Link href={`/team/${activeTeam.slug}`} className={navLinkClass(pathname.startsWith("/team/"))}>
+                {activeTeam.name.replace(/\s*\d{4}$/, "")}
+              </Link>
+            )}
+            {activeTournament && (
+              <Link href={`/tournament/${activeTournament.slug}`} className={navLinkClass(pathname.startsWith("/tournament/"))}>
+                Championship
+              </Link>
+            )}
+            {isRealAdmin && (
+              <>
+                <div className="w-px h-5 bg-white/20 mx-1" />
+                <Link href="/admin" className={navLinkClass(pathname === "/admin")}>
+                  Admin
+                </Link>
+                <Link href="/admin/analytics" className={navLinkClass(pathname === "/admin/analytics")}>
+                  Analytics
+                </Link>
+              </>
+            )}
+          </div>
+
+          {/* Desktop user dropdown */}
+          <div className="hidden sm:block relative" ref={dropdownRef}>
+            {user ? (
+              <>
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  {firstName}
+                  <svg className={`w-4 h-4 transition-transform ${userMenuOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                  </svg>
+                </button>
+                {userMenuOpen && (
+                  <div className="absolute right-0 mt-1 w-56 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden z-50">
+                    <div className="p-1.5 space-y-0.5">
+                      <Link href={`/player/${user.player_id}`} className="block px-3 py-2 rounded-lg text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                        My Profile
+                      </Link>
+                      <Link href="/practice" className="block px-3 py-2 rounded-lg text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                        Practice
+                      </Link>
+                      {nav && nav.history.length > 0 && (
+                        <>
+                          <div className="h-px bg-slate-100 dark:bg-slate-700 mx-1 my-1" />
+                          <p className="px-3 pt-1 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">History</p>
+                          {nav.history.map((h) => (
+                            <Link
+                              key={h.slug}
+                              href={`/${h.kind === "tournament" ? "tournament" : "team"}/${h.slug}`}
+                              className="block px-3 py-1.5 rounded-lg text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                            >
+                              {h.name}
+                            </Link>
+                          ))}
+                        </>
+                      )}
+                      {isRealAdmin && (
+                        <>
+                          <div className="h-px bg-slate-100 dark:bg-slate-700 mx-1 my-1" />
+                          <button
+                            onClick={loadPlayers}
+                            className="block w-full text-left px-3 py-2 rounded-lg text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                          >
+                            View as Player...
+                          </button>
+                          {showImpersonate && (
+                            <div className="max-h-40 overflow-y-auto mx-1 bg-slate-50 dark:bg-slate-900 rounded-lg p-1">
+                              {players.map((p) => (
+                                <button
+                                  key={p.id}
+                                  onClick={() => handleImpersonate(p.id)}
+                                  className="block w-full text-left px-2 py-1.5 rounded text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                                >
+                                  {p.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+                      <div className="h-px bg-slate-100 dark:bg-slate-700 mx-1 my-1" />
+                      <button
+                        onClick={handleLogout}
+                        className="block w-full text-left px-3 py-2 rounded-lg text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                      >
+                        Sign Out
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <Link href="/login" className="px-3 py-1.5 rounded-lg text-sm font-medium text-white/80 hover:text-white hover:bg-white/10 transition-colors">
+                Login
+              </Link>
+            )}
+          </div>
+
+          {/* Mobile: just show user name, no hamburger (bottom tabs handle nav) */}
+          <div className="sm:hidden">
             {user && (
               <span className="text-xs text-white/70">{firstName}</span>
             )}
-            <button
-              onClick={() => setOpen(!open)}
-              className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-              aria-label="Menu"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                {open ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                )}
-              </svg>
-            </button>
           </div>
         </div>
       </div>
-
-      {open && (
-        <div className="border-t border-white/20 bg-primary-dark">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 space-y-4">
-            {/* Top links */}
-            <div className="space-y-1">
-              <Link
-                href="/dashboard"
-                onClick={() => setOpen(false)}
-                className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors font-semibold"
-              >
-                My Dashboard
-              </Link>
-              {user && (
-                <Link
-                  href={`/player/${user.player_id}`}
-                  onClick={() => setOpen(false)}
-                  className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-                >
-                  My Profile
-                </Link>
-              )}
-              <Link
-                href="/practice"
-                onClick={() => setOpen(false)}
-                className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-              >
-                Practice
-              </Link>
-            </div>
-
-            {nav && nav.teams.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-white/60 mb-2">USTA Teams</p>
-                <div className="space-y-1">
-                  {nav.teams.map((t) => (
-                    <Link
-                      key={t.slug}
-                      href={`/team/${t.slug}`}
-                      onClick={() => setOpen(false)}
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-                    >
-                      <StatusDot status={t.status} />
-                      <span>{t.name}</span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {nav && nav.tournaments.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-white/60 mb-2">Tournaments</p>
-                <div className="space-y-1">
-                  {nav.tournaments.map((t) => (
-                    <Link
-                      key={t.slug}
-                      href={`/tournament/${t.slug}`}
-                      onClick={() => setOpen(false)}
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-                    >
-                      <StatusDot status={t.status} />
-                      <span>{t.name}</span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {nav && nav.history.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-white/60 mb-2">History</p>
-                <div className="space-y-1">
-                  {nav.history.map((t) => (
-                    <Link
-                      key={t.slug}
-                      href={`/${t.kind === "tournament" ? "tournament" : "team"}/${t.slug}`}
-                      onClick={() => setOpen(false)}
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-                    >
-                      <StatusDot status="completed" />
-                      <span>{t.name}</span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="border-t border-white/20 pt-3 space-y-1">
-              {isRealAdmin && (
-                <>
-                  <Link
-                    href="/admin"
-                    onClick={() => setOpen(false)}
-                    className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-                  >
-                    Admin
-                  </Link>
-                  <button
-                    onClick={loadPlayers}
-                    className="block w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 transition-colors text-white/80"
-                  >
-                    View as Player...
-                  </button>
-                  {showImpersonate && (
-                    <div className="ml-3 max-h-48 overflow-y-auto space-y-0.5 bg-white/5 rounded-lg p-2">
-                      {players.map((p) => (
-                        <button
-                          key={p.id}
-                          onClick={() => handleImpersonate(p.id)}
-                          className="block w-full text-left px-2 py-1.5 rounded text-sm hover:bg-white/10 transition-colors"
-                        >
-                          {p.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-              {user ? (
-                <button
-                  onClick={handleLogout}
-                  className="block w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 transition-colors text-white/80"
-                >
-                  Sign Out ({user.name})
-                </button>
-              ) : (
-                <Link
-                  href="/login"
-                  onClick={() => setOpen(false)}
-                  className="block px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-                >
-                  Login
-                </Link>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </header>
   );
 }

@@ -59,7 +59,6 @@ export function emailTemplate(content: string, options?: {
         <tr><td style="background: #f8fafc; padding: 16px 32px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
           <p style="margin: 0; font-size: 12px; color: #94a3b8;">
             <a href="https://framers.app/dashboard" style="color: #0369a1; text-decoration: none; font-weight: 600;">framers.app</a>
-            &nbsp;&middot;&nbsp; Greenbrook Tennis Community
           </p>
           ${footer}
         </td></tr>

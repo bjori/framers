@@ -93,8 +93,8 @@ export default async function DashboardPage() {
              ELSE tm.participant1_id END
            LEFT JOIN players opp_p ON opp_p.id = opp_tp.player_id
            WHERE my_tp.player_id = ? AND tm.status IN ('scheduled','needs_score')
-           ORDER BY tm.scheduled_date ASC, tm.scheduled_time ASC
-           LIMIT 5`
+             AND tm.scheduled_date <= date('now', '+28 days')
+           ORDER BY tm.scheduled_date ASC, tm.scheduled_time ASC`
         )
         .bind(session.player_id)
         .all<UpcomingTournamentMatch>()
@@ -122,8 +122,8 @@ export default async function DashboardPage() {
            LEFT JOIN lineups lu ON lu.match_id = lm.id
            LEFT JOIN lineup_slots ls ON ls.lineup_id = lu.id AND ls.player_id = ?
            WHERE lm.status != 'completed' AND lm.status != 'cancelled'
-           ORDER BY lm.match_date ASC
-           LIMIT 5`
+             AND lm.match_date <= date('now', '+28 days')
+           ORDER BY lm.match_date ASC`
         )
         .bind(session.player_id, session.player_id, session.player_id)
         .all<UpcomingLeagueMatch>()
@@ -195,8 +195,8 @@ export default async function DashboardPage() {
                 (SELECT COUNT(*) FROM practice_rsvp pr WHERE pr.session_id = ps.id AND pr.status = 'yes') as yes_count,
                 (SELECT status FROM practice_rsvp pr2 WHERE pr2.session_id = ps.id AND pr2.player_id = ?) as my_rsvp
          FROM practice_sessions ps
-         WHERE ps.session_date >= date('now') AND ps.cancelled = 0
-         ORDER BY ps.session_date ASC LIMIT 8`
+         WHERE ps.session_date >= date('now') AND ps.session_date <= date('now', '+28 days') AND ps.cancelled = 0
+         ORDER BY ps.session_date ASC`
       ).bind(session.player_id).all<UpcomingPractice>()).results;
 
       for (const p of practices) {
@@ -398,17 +398,6 @@ export default async function DashboardPage() {
       </section>
 
       {session && <CalendarSubscribe />}
-
-      {/* Quick links */}
-      {session && (
-        <Link
-          href={`/player/${session.player_id}`}
-          className="block bg-surface-alt rounded-xl border border-border p-4 hover:border-primary-light transition-colors"
-        >
-          <h3 className="font-semibold">My Profile</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400">View your stats, ELO, and match history</p>
-        </Link>
-      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {tournaments.map((t) => (

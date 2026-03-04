@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Nav } from "@/components/nav";
+import { BottomTabs } from "@/components/bottom-tabs";
 import { ImpersonationBanner } from "@/components/impersonation-banner";
 
 export const metadata: Metadata = {
@@ -35,9 +36,10 @@ export default function RootLayout({
       <body className="bg-surface text-slate-900 dark:text-slate-100 min-h-dvh flex flex-col">
         <ImpersonationBanner />
         <Nav />
-        <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:px-6 sm:py-6">
+        <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-4 sm:px-6 sm:py-6 pb-20 sm:pb-6">
           {children}
         </main>
+        <BottomTabs />
       </body>
     </html>
   );
