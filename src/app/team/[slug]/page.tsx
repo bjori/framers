@@ -110,6 +110,7 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
           isReadOnly={isReadOnly}
           isMember={isMember}
           neededPlayers={neededPlayers}
+          currentPlayerId={session?.player_id ?? null}
         />
       </Suspense>
     </div>

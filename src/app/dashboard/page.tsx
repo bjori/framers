@@ -214,18 +214,6 @@ export default async function DashboardPage() {
     allEvents.sort((a, b) => a.date.localeCompare(b.date));
   }
 
-  const teams = (
-    await db
-      .prepare("SELECT name, slug, status, league, season_year FROM teams WHERE status IN ('active','upcoming') ORDER BY status, name")
-      .all<{ name: string; slug: string; status: string; league: string; season_year: number }>()
-  ).results;
-
-  const tournaments = (
-    await db
-      .prepare("SELECT name, slug, status FROM tournaments WHERE status IN ('active','upcoming') ORDER BY start_date DESC")
-      .all<{ name: string; slug: string; status: string }>()
-  ).results;
-
   const hasUpcoming = allEvents.length > 0;
   const hasActionItems = pendingRsvpCount > 0 || unscoredMatches.length > 0 || owedFees.length > 0;
 
@@ -398,39 +386,6 @@ export default async function DashboardPage() {
       </section>
 
       {session && <CalendarSubscribe />}
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {tournaments.map((t) => (
-          <Link
-            key={t.slug}
-            href={`/tournament/${t.slug}`}
-            className="bg-surface-alt rounded-xl border border-border p-4 hover:border-primary-light transition-colors"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <span className={`inline-block w-2 h-2 rounded-full ${t.status === "active" ? "bg-accent" : "bg-warning"}`} />
-              <h3 className="font-semibold">{t.name}</h3>
-            </div>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              {t.status === "active" ? "In progress" : "Upcoming"}
-            </p>
-          </Link>
-        ))}
-        {teams.map((t) => (
-          <Link
-            key={t.slug}
-            href={`/team/${t.slug}`}
-            className="bg-surface-alt rounded-xl border border-border p-4 hover:border-primary-light transition-colors"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <span className={`inline-block w-2 h-2 rounded-full ${t.status === "active" ? "bg-accent" : "bg-warning"}`} />
-              <h3 className="font-semibold">{t.name}</h3>
-            </div>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              {t.league} · {t.season_year}
-            </p>
-          </Link>
-        ))}
-      </div>
     </div>
   );
 }

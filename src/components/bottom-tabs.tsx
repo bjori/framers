@@ -129,6 +129,7 @@ export function BottomTabs() {
   const activeTournament = nav?.tournaments.find((t) => t.status === "active");
   const teamHref = activeTeam ? `/team/${activeTeam.slug}` : "/dashboard";
   const tournamentHref = activeTournament ? `/tournament/${activeTournament.slug}` : null;
+  const otherTeams = nav?.teams.filter((t) => t.slug !== activeTeam?.slug) ?? [];
 
   const isHome = pathname === "/dashboard" || pathname === "/";
   const isTeam = pathname.startsWith("/team/");
@@ -171,6 +172,23 @@ export function BottomTabs() {
                 </svg>
                 <span className="text-sm font-medium">Practice</span>
               </Link>
+
+              {nav && otherTeams.length > 0 && (
+                <>
+                  <div className="h-px bg-border mx-2 my-1" />
+                  <p className="px-4 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Teams</p>
+                  {otherTeams.map((t) => (
+                    <Link
+                      key={t.slug}
+                      href={`/team/${t.slug}`}
+                      className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <span className={`w-2 h-2 rounded-full ${t.status === "active" ? "bg-accent" : "bg-warning"}`} />
+                      <span className="text-sm font-medium">{t.name}</span>
+                    </Link>
+                  ))}
+                </>
+              )}
 
               {isRealAdmin && (
                 <>

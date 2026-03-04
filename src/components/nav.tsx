@@ -90,6 +90,7 @@ export function Nav() {
 
   const activeTeam = nav?.teams.find((t) => t.status === "active");
   const activeTournament = nav?.tournaments.find((t) => t.status === "active");
+  const otherTeams = nav?.teams.filter((t) => t.slug !== activeTeam?.slug) ?? [];
   const firstName = user?.name?.split(" ")[0] ?? "";
 
   function navLinkClass(active: boolean) {
@@ -158,6 +159,22 @@ export function Nav() {
                       <Link href="/practice" className="block px-3 py-2 rounded-lg text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                         Practice
                       </Link>
+                      {otherTeams.length > 0 && (
+                        <>
+                          <div className="h-px bg-slate-100 dark:bg-slate-700 mx-1 my-1" />
+                          <p className="px-3 pt-1 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Teams</p>
+                          {otherTeams.map((t) => (
+                            <Link
+                              key={t.slug}
+                              href={`/team/${t.slug}`}
+                              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${t.status === "active" ? "bg-accent" : "bg-warning"}`} />
+                              {t.name}
+                            </Link>
+                          ))}
+                        </>
+                      )}
                       {nav && nav.history.length > 0 && (
                         <>
                           <div className="h-px bg-slate-100 dark:bg-slate-700 mx-1 my-1" />
