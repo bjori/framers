@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
   const rosterSection = teamHtml.indexOf("Team Roster");
   if (rosterSection > -1) {
     const rosterHtml = teamHtml.substring(rosterSection);
-    const rosterRegex = /playermatches\.asp\?id=\d+">([^<]+)<\/a>/gi;
+    const rosterRegex = /playermatches\.asp\?id=\d+"?>([^<]+)<\/a>/gi;
     let rm;
     while ((rm = rosterRegex.exec(rosterHtml)) !== null) {
       rosterNames.push(rm[1].trim());
