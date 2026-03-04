@@ -124,11 +124,32 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const rosterPlayerIds = rosterNames
-    .map((name) => resolvePlayer(name))
-    .filter((id): id is string => id !== null);
+  // Match USTA names against actual team members in DB (not the hardcoded map)
+  const teamMembers = (await db.prepare(
+    `SELECT tm.player_id, p.name FROM team_memberships tm
+     JOIN players p ON p.id = tm.player_id
+     WHERE tm.team_id = ? AND tm.active = 1`
+  ).bind(team.id).all<{ player_id: string; name: string }>()).results;
 
-  if (rosterPlayerIds.length > 0) {
+  function normalizeUstaName(ustaName: string): string {
+    const parts = ustaName.split(",").map((s: string) => s.trim().toLowerCase());
+    if (parts.length === 2) return `${parts[1]} ${parts[0]}`;
+    return ustaName.toLowerCase().trim();
+  }
+
+  const rosterPlayerIds: string[] = [];
+  for (const ustaName of rosterNames) {
+    const normalized = normalizeUstaName(ustaName);
+    const match = teamMembers.find((m) => m.name.toLowerCase() === normalized);
+    if (match) {
+      rosterPlayerIds.push(match.player_id);
+    } else {
+      const resolvedId = resolvePlayer(ustaName);
+      if (resolvedId) rosterPlayerIds.push(resolvedId);
+    }
+  }
+
+  if (rosterNames.length > 0) {
     await db.prepare(
       "UPDATE team_memberships SET usta_registered = 0 WHERE team_id = ? AND active = 1"
     ).bind(team.id).run();
