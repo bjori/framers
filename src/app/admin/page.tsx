@@ -458,8 +458,8 @@ export default function AdminPage() {
     setMessage("");
     const res = await fetch("/api/admin/elo/recalculate", { method: "POST" });
     if (res.ok) {
-      const data = (await res.json()) as { matchesProcessed: number; eloUpdates: number };
-      setMessage(`ELO recalculated: ${data.matchesProcessed} matches, ${data.eloUpdates} updates`);
+      const data = (await res.json()) as { tournamentMatchesProcessed: number; leagueResultsProcessed: number; eloUpdates: number };
+      setMessage(`ELO recalculated: ${data.tournamentMatchesProcessed} tournament + ${data.leagueResultsProcessed} league matches, ${data.eloUpdates} updates`);
       loadPlayers();
     } else {
       setMessage("Failed to recalculate ELO");
