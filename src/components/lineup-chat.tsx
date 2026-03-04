@@ -79,7 +79,7 @@ export function LineupChat({ slug }: Props) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-24 right-4 sm:bottom-6 sm:right-6 z-50 w-14 h-14 rounded-full bg-primary text-white shadow-lg hover:bg-primary-light active:scale-95 transition-all flex items-center justify-center"
+        className="fixed bottom-24 right-4 sm:bottom-6 sm:right-6 z-[60] w-14 h-14 rounded-full bg-primary text-white shadow-lg hover:bg-primary-light active:scale-95 transition-all flex items-center justify-center"
         aria-label="Open AI Lineup Assistant"
       >
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -90,7 +90,7 @@ export function LineupChat({ slug }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col sm:inset-auto sm:bottom-6 sm:right-6 sm:w-[420px] sm:h-[600px] sm:rounded-2xl sm:shadow-2xl sm:border sm:border-border bg-white dark:bg-slate-900 overflow-hidden">
+    <div className="fixed inset-0 z-[60] flex flex-col sm:inset-auto sm:bottom-6 sm:right-6 sm:w-[420px] sm:h-[600px] sm:rounded-2xl sm:shadow-2xl sm:border sm:border-border bg-white dark:bg-slate-900 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-primary text-white shrink-0">
         <div className="flex items-center gap-2">
