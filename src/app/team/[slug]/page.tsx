@@ -85,6 +85,10 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
 
   const neededPlayers = (format.singles || 0) + (format.doubles || 0) * 2;
 
+  const emptyScheduleMessage = matches.length === 0 && team.status === "upcoming"
+    ? "Schedule is TBD, likely available March 20th. Check back soon!"
+    : undefined;
+
   return (
     <div className="space-y-5">
       <div>
@@ -111,6 +115,7 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
           isMember={isMember}
           neededPlayers={neededPlayers}
           currentPlayerId={session?.player_id ?? null}
+          emptyScheduleMessage={emptyScheduleMessage}
         />
       </Suspense>
     </div>

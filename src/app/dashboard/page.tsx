@@ -76,6 +76,7 @@ export default async function DashboardPage() {
   let pendingRsvpCount = 0;
   let owedFees: OwedFee[] = [];
   let nextPractice: UpcomingPractice | null = null;
+  let ustaNeeded: { team_name: string; team_slug: string; usta_team_id: string }[] = [];
   const allEvents: TimelineEvent[] = [];
 
   if (session) {
@@ -189,6 +190,17 @@ export default async function DashboardPage() {
       // practice tables might not exist yet
     }
 
+    // Check for teams where user needs USTA registration
+    try {
+      ustaNeeded = (await db.prepare(
+        `SELECT t.name as team_name, t.slug as team_slug, t.usta_team_id
+         FROM team_memberships tm
+         JOIN teams t ON t.id = tm.team_id
+         WHERE tm.player_id = ? AND tm.active = 1 AND tm.usta_registered = 0
+           AND t.status IN ('active', 'upcoming') AND t.usta_team_id IS NOT NULL`
+      ).bind(session.player_id).all<{ team_name: string; team_slug: string; usta_team_id: string }>()).results;
+    } catch { /* column may not exist yet */ }
+
     try {
       const practices = (await db.prepare(
         `SELECT ps.id, ps.session_date, ps.start_time,
@@ -215,7 +227,7 @@ export default async function DashboardPage() {
   }
 
   const hasUpcoming = allEvents.length > 0;
-  const hasActionItems = pendingRsvpCount > 0 || unscoredMatches.length > 0 || owedFees.length > 0;
+  const hasActionItems = pendingRsvpCount > 0 || unscoredMatches.length > 0 || owedFees.length > 0 || ustaNeeded.length > 0;
 
   return (
     <div className="space-y-6">
@@ -248,6 +260,22 @@ export default async function DashboardPage() {
                   className="text-xs font-bold bg-[#008CFF] text-white px-2 py-0.5 rounded hover:bg-[#0074D4] transition-colors"
                 >
                   Pay via Venmo
+                </a>
+              </div>
+            ))}
+            {ustaNeeded.map((t) => (
+              <div key={t.team_slug} className="text-sm">
+                <p className="font-semibold">USTA roster registration needed</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                  Make sure you&apos;re rostered on the USTA page for <strong>{t.team_name}</strong> so you&apos;re eligible to play.
+                </p>
+                <a
+                  href={`https://leagues.ustanorcal.com/teaminfo.asp?id=${t.usta_team_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block mt-1 text-xs font-bold bg-sky-600 text-white px-2.5 py-1 rounded hover:bg-sky-700 transition-colors"
+                >
+                  Check USTA Roster
                 </a>
               </div>
             ))}

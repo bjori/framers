@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 interface AvailabilityEntry {
   player_name: string;
@@ -24,6 +24,12 @@ interface Props {
   slug?: string;
 }
 
+const RSVP_OPTIONS: { value: "yes" | "maybe" | "no"; emoji: string; label: string; bg: string }[] = [
+  { value: "yes", emoji: "\u2705", label: "Yes", bg: "bg-green-50 hover:bg-green-100 dark:bg-green-900/30 dark:hover:bg-green-900/50 border-green-200 dark:border-green-800" },
+  { value: "maybe", emoji: "\u2753", label: "Maybe", bg: "bg-yellow-50 hover:bg-yellow-100 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50 border-yellow-200 dark:border-yellow-800" },
+  { value: "no", emoji: "\u274C", label: "No", bg: "bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 border-red-200 dark:border-red-800" },
+];
+
 function statusIcon(status: string | null): string {
   switch (status) {
     case "yes": return "\u2705";
@@ -39,15 +45,6 @@ function statusColor(status: string | null): string {
     case "maybe": return "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400";
     case "no": return "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400";
     default: return "bg-slate-50 dark:bg-slate-800/50 text-slate-400";
-  }
-}
-
-function nextStatus(current: string | null): "yes" | "maybe" | "no" {
-  switch (current) {
-    case "yes": return "maybe";
-    case "maybe": return "no";
-    case "no": return "yes";
-    default: return "yes";
   }
 }
 
@@ -73,6 +70,63 @@ function disambiguateNames(roster: { player_id: string; name: string }[]): Map<s
   return displayNames;
 }
 
+function RsvpPopover({
+  matchId,
+  matchDate,
+  opponent,
+  current,
+  onSelect,
+  onClose,
+}: {
+  matchId: string;
+  matchDate: string;
+  opponent: string;
+  current: string | null;
+  onSelect: (matchId: string, status: "yes" | "maybe" | "no") => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [onClose]);
+
+  const dateStr = new Date(matchDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30" onMouseDown={onClose}>
+      <div
+        ref={ref}
+        onMouseDown={(e) => e.stopPropagation()}
+        className="bg-white dark:bg-slate-800 rounded-t-2xl sm:rounded-2xl w-full max-w-sm mx-auto p-5 pb-8 sm:pb-5 shadow-2xl animate-in slide-in-from-bottom duration-200"
+      >
+        <div className="text-center mb-4">
+          <p className="text-xs text-slate-500 dark:text-slate-400">{dateStr}</p>
+          <p className="font-semibold text-sm">vs {opponent}</p>
+        </div>
+        <div className="flex gap-3">
+          {RSVP_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => onSelect(matchId, opt.value)}
+              className={`flex-1 flex flex-col items-center gap-1.5 py-4 rounded-xl border-2 transition-all active:scale-95 ${opt.bg} ${
+                current === opt.value ? "ring-2 ring-sky-400 ring-offset-2 dark:ring-offset-slate-800 scale-105" : ""
+              }`}
+            >
+              <span className="text-2xl">{opt.emoji}</span>
+              <span className="text-xs font-semibold">{opt.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AvailabilityGrid({ roster, matches, availability, neededPlayers = 7, currentPlayerId, slug }: Props) {
   const [avMap, setAvMap] = useState<Map<string, string>>(() => {
     const m = new Map<string, string>();
@@ -82,30 +136,31 @@ export default function AvailabilityGrid({ roster, matches, availability, needed
     return m;
   });
   const [submitting, setSubmitting] = useState<string | null>(null);
+  const [popover, setPopover] = useState<{ matchId: string; matchDate: string; opponent: string } | null>(null);
 
   const displayNames = disambiguateNames(roster);
 
   const openMatches = matches.filter((m) => m.match_date >= new Date().toISOString().slice(0, 10));
   const displayMatches = openMatches.length > 0 ? openMatches : matches.slice(-5);
 
-  const handleToggle = useCallback(async (matchId: string) => {
+  const handleSelect = useCallback(async (matchId: string, status: "yes" | "maybe" | "no") => {
     if (!currentPlayerId || !slug) return;
     const key = `${currentPlayerId}:${matchId}`;
     const current = avMap.get(key) ?? null;
-    const next = nextStatus(current);
 
     setSubmitting(key);
     setAvMap((prev) => {
       const m = new Map(prev);
-      m.set(key, next);
+      m.set(key, status);
       return m;
     });
+    setPopover(null);
 
     try {
       const res = await fetch(`/api/team/${slug}/rsvp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId, status: next }),
+        body: JSON.stringify({ matchId, status }),
       });
       if (!res.ok) {
         setAvMap((prev) => {
@@ -142,7 +197,7 @@ export default function AvailabilityGrid({ roster, matches, availability, needed
     <section>
       <h2 className="text-lg font-semibold mb-3">Availability</h2>
       {currentPlayerId && slug && (
-        <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Tap your row to update your availability</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Tap your row to update</p>
       )}
       <div className="bg-surface-alt rounded-xl border border-border overflow-x-auto">
         <table className="w-full text-sm">
@@ -176,14 +231,14 @@ export default function AvailabilityGrid({ roster, matches, availability, needed
                   {displayMatches.map((m) => {
                     const key = `${p.player_id}:${m.id}`;
                     const status = avMap.get(key) ?? null;
-                    const canEdit = isMe && slug && isOpen(m.match_date);
+                    const canEdit = isMe && !!slug && isOpen(m.match_date);
                     return (
                       <td key={m.id} className="px-2 py-1.5 text-center">
                         {canEdit ? (
                           <button
-                            onClick={() => handleToggle(m.id)}
+                            onClick={() => setPopover({ matchId: m.id, matchDate: m.match_date, opponent: m.opponent_team })}
                             disabled={submitting === key}
-                            className={`inline-flex items-center justify-center w-7 h-7 rounded text-xs transition-transform active:scale-90 ${statusColor(status)} ${submitting === key ? "opacity-50" : "hover:ring-2 hover:ring-sky-300 dark:hover:ring-sky-700"}`}
+                            className={`inline-flex items-center justify-center w-7 h-7 rounded text-xs transition-transform active:scale-95 ${statusColor(status)} ${submitting === key ? "opacity-50" : "hover:ring-2 hover:ring-sky-300 dark:hover:ring-sky-700 cursor-pointer"}`}
                           >
                             {statusIcon(status)}
                           </button>
@@ -213,6 +268,17 @@ export default function AvailabilityGrid({ roster, matches, availability, needed
           </tbody>
         </table>
       </div>
+
+      {popover && currentPlayerId && (
+        <RsvpPopover
+          matchId={popover.matchId}
+          matchDate={popover.matchDate}
+          opponent={popover.opponent}
+          current={avMap.get(`${currentPlayerId}:${popover.matchId}`) ?? null}
+          onSelect={handleSelect}
+          onClose={() => setPopover(null)}
+        />
+      )}
     </section>
   );
 }

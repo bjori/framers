@@ -30,7 +30,7 @@ function fmtTime(t: string) {
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
-export function TeamSchedule({ matches, isReadOnly, slug }: { matches: LeagueMatch[]; isReadOnly: boolean; slug: string }) {
+export function TeamSchedule({ matches, isReadOnly, slug, emptyMessage }: { matches: LeagueMatch[]; isReadOnly: boolean; slug: string; emptyMessage?: string }) {
   const [myRsvp, setMyRsvp] = useState<RsvpStatus>({});
   const [counts, setCounts] = useState<RsvpCounts>({});
   const [submitting, setSubmitting] = useState<string | null>(null);
@@ -84,6 +84,19 @@ export function TeamSchedule({ matches, isReadOnly, slug }: { matches: LeagueMat
       });
     }
     setSubmitting(null);
+  }
+
+  if (matches.length === 0) {
+    return (
+      <section>
+        <h2 className="text-lg font-semibold mb-3">Schedule</h2>
+        <div className="bg-surface-alt rounded-xl border border-border p-6 text-center">
+          <p className="text-slate-500 dark:text-slate-400 text-sm">
+            {emptyMessage || "No matches scheduled yet."}
+          </p>
+        </div>
+      </section>
+    );
   }
 
   return (

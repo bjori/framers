@@ -5,7 +5,7 @@ import { getSession } from "@/lib/auth";
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, phone TEXT, password_hash TEXT, ntrp_rating REAL, ntrp_type TEXT, singles_elo INTEGER NOT NULL DEFAULT 1500, doubles_elo INTEGER NOT NULL DEFAULT 1500, avatar_url TEXT, ics_token TEXT UNIQUE, reliability_score REAL NOT NULL DEFAULT 1.0, is_admin INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')))`,
   `CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL, league TEXT, season_year INTEGER, season_start TEXT, season_end TEXT, match_format TEXT, usta_team_id TEXT, min_matches_goal INTEGER NOT NULL DEFAULT 3, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')))`,
-  `CREATE TABLE IF NOT EXISTS team_memberships (player_id TEXT NOT NULL REFERENCES players(id), team_id TEXT NOT NULL REFERENCES teams(id), role TEXT NOT NULL DEFAULT 'player', preferences TEXT, active INTEGER NOT NULL DEFAULT 1, joined_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')), PRIMARY KEY (player_id, team_id))`,
+  `CREATE TABLE IF NOT EXISTS team_memberships (player_id TEXT NOT NULL REFERENCES players(id), team_id TEXT NOT NULL REFERENCES teams(id), role TEXT NOT NULL DEFAULT 'player', preferences TEXT, active INTEGER NOT NULL DEFAULT 1, usta_registered INTEGER NOT NULL DEFAULT 0, joined_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')), PRIMARY KEY (player_id, team_id))`,
   `CREATE TABLE IF NOT EXISTS league_matches (id TEXT PRIMARY KEY, team_id TEXT NOT NULL REFERENCES teams(id), round_number INTEGER, opponent_team TEXT, match_date TEXT NOT NULL, match_time TEXT, location TEXT, is_home INTEGER NOT NULL DEFAULT 0, notes TEXT, team_result TEXT, team_score TEXT, status TEXT NOT NULL DEFAULT 'open', rsvp_deadline TEXT, lock_time TEXT, usta_url TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')))`,
   `CREATE TABLE IF NOT EXISTS availability (player_id TEXT NOT NULL REFERENCES players(id), match_id TEXT NOT NULL REFERENCES league_matches(id), status TEXT NOT NULL DEFAULT 'pending', responded_at TEXT, is_before_deadline INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (player_id, match_id))`,
   `CREATE TABLE IF NOT EXISTS lineups (id TEXT PRIMARY KEY, match_id TEXT NOT NULL UNIQUE REFERENCES league_matches(id), status TEXT NOT NULL DEFAULT 'draft', generated_at TEXT, confirmed_at TEXT, locked_at TEXT)`,
@@ -29,6 +29,10 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_app_events_created ON app_events(created_at)`,
 ];
 
+const MIGRATIONS = [
+  `ALTER TABLE team_memberships ADD COLUMN usta_registered INTEGER NOT NULL DEFAULT 0`,
+];
+
 export async function GET() {
   const session = await getSession();
   // Allow unauthenticated only if no players exist yet (initial setup)
@@ -40,10 +44,26 @@ export async function GET() {
     const { env } = await getCloudflareContext({ async: true });
     const db = env.DB;
     await db.batch(SCHEMA_STATEMENTS.map((s) => db.prepare(s)));
+
+    const migrationResults: string[] = [];
+    for (const sql of MIGRATIONS) {
+      try {
+        await db.prepare(sql).run();
+        migrationResults.push(`OK: ${sql.slice(0, 60)}`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes("duplicate column")) {
+          migrationResults.push(`SKIP (exists): ${sql.slice(0, 60)}`);
+        } else {
+          migrationResults.push(`ERR: ${msg}`);
+        }
+      }
+    }
+
     const tables = await db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all();
-    return NextResponse.json({ ok: true, tables: tables.results });
+    return NextResponse.json({ ok: true, tables: tables.results, migrations: migrationResults });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

@@ -174,6 +174,7 @@ export function TeamTabs({
   isMember,
   neededPlayers,
   currentPlayerId,
+  emptyScheduleMessage,
 }: {
   slug: string;
   matches: LeagueMatch[];
@@ -183,6 +184,7 @@ export function TeamTabs({
   isMember: boolean;
   neededPlayers: number;
   currentPlayerId: string | null;
+  emptyScheduleMessage?: string;
 }) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -219,7 +221,7 @@ export function TeamTabs({
       </div>
 
       {tab === "schedule" && (
-        <TeamSchedule matches={matches} isReadOnly={isReadOnly} slug={slug} />
+        <TeamSchedule matches={matches} isReadOnly={isReadOnly} slug={slug} emptyMessage={emptyScheduleMessage} />
       )}
 
       {tab === "roster" && (
