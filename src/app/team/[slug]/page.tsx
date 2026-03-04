@@ -26,6 +26,7 @@ interface TeamMember {
   ntrp_rating: number;
   ntrp_type: string;
   singles_elo: number;
+  doubles_elo: number;
   preferences: string | null;
 }
 
@@ -53,11 +54,11 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
   const roster = (
     await db
       .prepare(
-        `SELECT tm.player_id, p.name, tm.role, p.ntrp_rating, p.ntrp_type, p.singles_elo, tm.preferences
+        `SELECT tm.player_id, p.name, tm.role, p.ntrp_rating, p.ntrp_type, p.singles_elo, p.doubles_elo, tm.preferences
          FROM team_memberships tm
          JOIN players p ON p.id = tm.player_id
          WHERE tm.team_id = ? AND tm.active = 1
-         ORDER BY p.singles_elo DESC`
+         ORDER BY MAX(p.singles_elo, p.doubles_elo) DESC`
       )
       .bind(team.id)
       .all<TeamMember>()
@@ -121,8 +122,10 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono text-slate-400">{p.singles_elo}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-400 font-mono" title="Singles / Doubles ELO">
+                    {p.singles_elo}<span className="text-slate-300 dark:text-slate-600">/</span>{p.doubles_elo}
+                  </span>
                   <span className="text-xs text-slate-500">{p.ntrp_type}</span>
                 </div>
               </div>
