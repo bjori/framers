@@ -34,7 +34,7 @@ Secrets are managed via `npx wrangler secret put SECRET_NAME --name greenbrook-f
 - **Emails**: Use `sendEmailBatch()` for bulk, `sendEmail()` for single. Always wrap content in `emailTemplate()`
 - **Analytics**: `track(event, { detail })` from `@/lib/analytics` — fire-and-forget, never throws
 - **Cron dedup**: Use `app_events` table to prevent duplicate notifications (check before sending)
-- **Admin**: Hannes Magnusson is primary admin. Matt McCabe is co-captain for Senior Framers team
+- **Admin**: Hannes Magnusson is primary admin. Matt McCabe is co-captain for both Senior Framers and Junior Framers teams
 - **Impersonation**: Admins can view-as-user via `framers_impersonate` cookie
 
 ## Roles

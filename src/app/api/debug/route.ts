@@ -552,6 +552,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, recorded: payers.length });
     }
 
+    if (body.action === "matt-junior-cocaptain") {
+      const mattId = "5a61d2ac-cd7c-4f10-8716-f3fc6f3351fa";
+      const teamId = "team-junior-framers-2026";
+      const existing = await db.prepare("SELECT role FROM team_memberships WHERE player_id = ? AND team_id = ?").bind(mattId, teamId).first<{ role: string }>();
+      if (existing) {
+        await db.prepare("UPDATE team_memberships SET role = 'co-captain' WHERE player_id = ? AND team_id = ?").bind(mattId, teamId).run();
+        return NextResponse.json({ ok: true, action: "updated", previousRole: existing.role });
+      } else {
+        await db.prepare("INSERT INTO team_memberships (player_id, team_id, role) VALUES (?, ?, 'co-captain')").bind(mattId, teamId).run();
+        return NextResponse.json({ ok: true, action: "inserted" });
+      }
+    }
+
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
