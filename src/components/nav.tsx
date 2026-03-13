@@ -128,11 +128,8 @@ export function Nav() {
             {showAdminMenu && (
               <>
                 <div className="w-px h-5 bg-white/20 mx-1" />
-                <Link href="/admin" className={navLinkClass(pathname === "/admin")}>
+                <Link href="/admin" className={navLinkClass(pathname.startsWith("/admin"))}>
                   Admin
-                </Link>
-                <Link href="/admin/analytics" className={navLinkClass(pathname === "/admin/analytics")}>
-                  Analytics
                 </Link>
               </>
             )}
