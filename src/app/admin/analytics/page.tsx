@@ -1,5 +1,6 @@
 import { getSession, canAccessAdmin } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { Breadcrumb } from "@/components/breadcrumb";
 import AnalyticsDashboard from "./analytics-dashboard";
 
 export default async function AdminAnalyticsPage() {
@@ -7,17 +8,10 @@ export default async function AdminAnalyticsPage() {
   if (!session || !(await canAccessAdmin(session))) redirect("/dashboard");
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Analytics</h1>
-        <a
-          href="/admin"
-          className="text-sm text-sky-600 dark:text-sky-400 hover:underline"
-        >
-          &larr; Back to Admin
-        </a>
-      </div>
+    <div>
+      <Breadcrumb items={[{ label: "Admin", href: "/admin" }, { label: "Analytics" }]} />
+      <h1 className="text-2xl font-bold mb-6">Analytics</h1>
       <AnalyticsDashboard />
-    </main>
+    </div>
   );
 }

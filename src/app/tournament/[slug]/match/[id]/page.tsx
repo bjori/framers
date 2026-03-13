@@ -2,6 +2,7 @@ import { getDB } from "@/lib/db";
 import { getSession, canAccessAdmin } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { Breadcrumb } from "@/components/breadcrumb";
 import { TournamentMatchDetail } from "@/components/tournament-match-detail";
 
 export default async function TournamentMatchPage({
@@ -81,9 +82,7 @@ export default async function TournamentMatchPage({
   return (
     <div className="space-y-6">
       <div>
-        <Link href={`/tournament/${slug}`} className="text-xs text-primary-light hover:underline mb-2 inline-block">
-          &larr; {tournament.name}
-        </Link>
+        <Breadcrumb items={[{ label: tournament.name, href: `/tournament/${slug}` }, { label: `Week ${match.week}` }]} />
         <p className="text-xs text-slate-400 uppercase font-bold">Week {match.week}</p>
         <h1 className="text-xl font-bold mt-1">
           <span className={match.winner_participant_id === match.participant1_id ? "text-accent" : ""}>{p1Display}</span>

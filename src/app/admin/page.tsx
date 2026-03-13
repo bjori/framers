@@ -1,706 +1,118 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
-interface Player {
-  id: string;
-  name: string;
-  email: string;
-  ntrp_rating: number;
-  ntrp_type: string;
-  singles_elo: number;
-  doubles_elo: number;
-  is_admin: number;
-}
-
-interface FeeSummary {
-  id: string;
-  label: string;
-  amount_cents: number;
-  context_type: string;
-  players: { id: string; name: string; owed: number; paid: number; remaining: number }[];
-}
-
-interface TeamOption {
-  id: string;
-  name: string;
-  slug: string;
-}
-
-interface InterestSignup {
-  id: string;
-  team_id: string;
-  name: string;
-  email: string;
-  phone: string | null;
-  ntrp_rating: number | null;
-  ntrp_type: string | null;
-  notes: string | null;
-  status: string;
-  created_at: string;
-}
-
-function AnnouncementSection({ setMessage }: { setMessage: (m: string) => void }) {
-  const [teams, setTeams] = useState<TeamOption[]>([]);
-  const [form, setForm] = useState({ teamId: "", subject: "", body: "" });
-  const [sending, setSending] = useState<"test" | "team" | false>(false);
-  const [result, setResult] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  useEffect(() => {
-    fetch("/api/nav")
-      .then((r) => r.json() as Promise<{ teams: TeamOption[] }>)
-      .then((d) => setTeams(d.teams))
-      .catch(() => {});
-  }, []);
-
-  async function sendAnnouncement(testOnly?: boolean) {
-    if (!form.teamId || !form.subject || !form.body) {
-      setResult({ type: "error", text: "All fields are required." });
-      return;
-    }
-    setSending(testOnly ? "test" : "team");
-    setResult(null);
-    try {
-      const res = await fetch("/api/admin/announce", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, testOnly }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { sent: number; total: number; failed: string[]; testOnly?: boolean };
-        if (data.testOnly) {
-          setResult({ type: "success", text: "Test email sent! Check your inbox." });
-        } else {
-          const failMsg = data.failed.length > 0 ? ` (${data.failed.length} failed)` : "";
-          setResult({ type: "success", text: `Sent to ${data.sent}/${data.total} members${failMsg}` });
-          setForm({ ...form, subject: "", body: "" });
-        }
-      } else {
-        const err = (await res.json()) as { error?: string };
-        setResult({ type: "error", text: err.error || "Failed to send" });
-      }
-    } catch {
-      setResult({ type: "error", text: "Network error" });
-    }
-    setSending(false);
-  }
-
-  return (
-    <section>
-      <h2 className="text-lg font-semibold mb-3">Send Announcement</h2>
-      <div className="bg-surface-alt rounded-xl border border-border p-4 space-y-3">
-        {result && (
-          <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium animate-[fadeIn_0.3s_ease-out] ${
-            result.type === "success"
-              ? "bg-accent/10 border border-accent/30 text-accent"
-              : "bg-danger/10 border border-danger/30 text-danger"
-          }`}>
-            <span className="text-lg">{result.type === "success" ? "\u2713" : "\u2717"}</span>
-            <span>{result.text}</span>
-            <button onClick={() => setResult(null)} className="ml-auto text-xs opacity-60 hover:opacity-100">&times;</button>
-          </div>
-        )}
-        <select
-          value={form.teamId}
-          onChange={(e) => { setForm({ ...form, teamId: e.target.value }); setResult(null); }}
-          className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm"
-        >
-          <option value="">Select team...</option>
-          {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
-        <input
-          value={form.subject}
-          onChange={(e) => { setForm({ ...form, subject: e.target.value }); setResult(null); }}
-          placeholder="Subject line"
-          className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm"
-        />
-        <textarea
-          value={form.body}
-          onChange={(e) => { setForm({ ...form, body: e.target.value }); setResult(null); }}
-          placeholder="Message body (plain text, line breaks will be preserved)"
-          rows={6}
-          className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm"
-        />
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-          <p className="text-xs text-slate-400">
-            Sends individual emails to all active team members.
-          </p>
-          <div className="flex gap-2 shrink-0">
-            <button
-              onClick={() => sendAnnouncement(true)}
-              disabled={!!sending}
-              className="px-3 py-2 rounded-lg border border-border text-sm font-semibold disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5"
-            >
-              {sending === "test" && <span className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />}
-              {sending === "test" ? "Sending..." : "Test Send to Me"}
-            </button>
-            <button
-              onClick={() => {
-                const teamName = teams.find((t) => t.id === form.teamId)?.name ?? "the team";
-                if (window.confirm(`Send "${form.subject}" to all active members of ${teamName}?`)) {
-                  sendAnnouncement();
-                }
-              }}
-              disabled={!!sending}
-              className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold disabled:opacity-50 flex items-center gap-1.5"
-            >
-              {sending === "team" && <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-              {sending === "team" ? "Sending..." : "Send to Team"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function InterestSection({ setMessage }: { setMessage: (m: string) => void }) {
-  const [teams, setTeams] = useState<TeamOption[]>([]);
-  const [selectedTeam, setSelectedTeam] = useState("");
-  const [signups, setSignups] = useState<InterestSignup[]>([]);
-  const [processing, setProcessing] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/api/nav")
-      .then((r) => r.json() as Promise<{ teams: TeamOption[] }>)
-      .then((d) => setTeams(d.teams))
-      .catch(() => {});
-  }, []);
-
-  async function loadSignups(slug: string) {
-    setSelectedTeam(slug);
-    const res = await fetch(`/api/team/${slug}/interest`);
-    if (res.ok) {
-      const data = (await res.json()) as { signups: InterestSignup[] };
-      setSignups(data.signups || []);
-    }
-  }
-
-  async function handleAction(interestId: string, action: "approve" | "reject") {
-    setProcessing(interestId);
-    const res = await fetch("/api/admin/interest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ interestId, action }),
-    });
-    if (res.ok) {
-      setMessage(`Signup ${action}d`);
-      if (selectedTeam) loadSignups(selectedTeam);
-    }
-    setProcessing(null);
-  }
-
-  return (
-    <section>
-      <h2 className="text-lg font-semibold mb-3">Team Interest Signups</h2>
-      <div className="bg-surface-alt rounded-xl border border-border p-4 space-y-3">
-        <div className="flex items-center gap-3">
-          <select
-            value={selectedTeam}
-            onChange={(e) => { if (e.target.value) loadSignups(e.target.value); }}
-            className="flex-1 px-3 py-2 rounded-lg border border-border bg-surface text-sm"
-          >
-            <option value="">Select team to view signups...</option>
-            {teams.map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
-          </select>
-          {selectedTeam && (
-            <p className="text-xs text-slate-500 shrink-0">
-              Share: <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">framers.app/join/{selectedTeam}</code>
-            </p>
-          )}
-        </div>
-
-        {signups.length === 0 && selectedTeam && (
-          <p className="text-sm text-slate-500">No signups yet for this team.</p>
-        )}
-
-        {signups.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-slate-500 border-b border-border">
-                  <th className="text-left py-1 px-2">Name</th>
-                  <th className="text-left py-1 px-2">Email</th>
-                  <th className="text-center py-1 px-2">NTRP</th>
-                  <th className="text-left py-1 px-2">Notes</th>
-                  <th className="text-center py-1 px-2">Status</th>
-                  <th className="py-1 px-2"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {signups.map((s) => (
-                  <tr key={s.id}>
-                    <td className="py-1.5 px-2 font-medium">{s.name}</td>
-                    <td className="py-1.5 px-2 text-slate-500">{s.email}</td>
-                    <td className="py-1.5 px-2 text-center">{s.ntrp_type || "-"}</td>
-                    <td className="py-1.5 px-2 text-xs text-slate-400 max-w-[200px] truncate">{s.notes || "-"}</td>
-                    <td className="py-1.5 px-2 text-center">
-                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                        s.status === "approved" ? "bg-accent/10 text-accent" :
-                        s.status === "rejected" ? "bg-danger/10 text-danger" :
-                        "bg-warning/10 text-warning"
-                      }`}>{s.status}</span>
-                    </td>
-                    <td className="py-1.5 px-2 text-right">
-                      {s.status === "pending" && (
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => handleAction(s.id, "approve")}
-                            disabled={processing === s.id}
-                            className="text-xs text-accent font-semibold"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleAction(s.id, "reject")}
-                            disabled={processing === s.id}
-                            className="text-xs text-danger font-semibold"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function PaymentSection({ players, setMessage }: { players: Player[]; setMessage: (m: string) => void }) {
-  const [fees, setFees] = useState<FeeSummary[]>([]);
-  const [payForm, setPayForm] = useState({ feeId: "", playerId: "", amount: "" });
-  const [recording, setRecording] = useState(false);
-
-  useEffect(() => {
-    loadFees();
-  }, []);
-
-  async function loadFees() {
-    try {
-      const res = await fetch("/api/admin/payments");
-      if (res.ok) {
-        const data = (await res.json()) as { fees: FeeSummary[] };
-        setFees(data.fees);
-      }
-    } catch { /* table may not exist */ }
-  }
-
-  async function recordPayment() {
-    if (!payForm.feeId || !payForm.playerId || !payForm.amount) return;
-    setRecording(true);
-    const res = await fetch("/api/admin/payments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "record-payment",
-        feeId: payForm.feeId,
-        playerId: payForm.playerId,
-        amountCents: Math.round(parseFloat(payForm.amount) * 100),
-      }),
-    });
-    if (res.ok) {
-      setMessage("Payment recorded");
-      setPayForm({ feeId: "", playerId: "", amount: "" });
-      loadFees();
-    }
-    setRecording(false);
-  }
-
-  if (fees.length === 0) {
-    return (
-      <section>
-        <h2 className="text-lg font-semibold mb-3">Payments</h2>
-        <p className="text-sm text-slate-500">No fees set up yet. Run setup-fees via the debug API.</p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="space-y-4">
-      <h2 className="text-lg font-semibold">Payments</h2>
-
-      {fees.map((fee) => {
-        const totalOwed = fee.players.reduce((s, p) => s + p.remaining, 0);
-        const totalPaid = fee.players.reduce((s, p) => s + p.paid, 0);
-        return (
-          <div key={fee.id} className="bg-surface-alt rounded-xl border border-border p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-sm">{fee.label}</h3>
-              <span className="text-xs text-slate-500">
-                ${(totalPaid / 100).toFixed(0)} collected / ${((totalPaid + totalOwed) / 100).toFixed(0)} total
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-slate-500 border-b border-border">
-                    <th className="text-left py-1 px-2">Player</th>
-                    <th className="text-center py-1 px-2">Owed</th>
-                    <th className="text-center py-1 px-2">Paid</th>
-                    <th className="text-center py-1 px-2">Balance</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {fee.players.map((p) => (
-                    <tr key={p.id}>
-                      <td className="py-1.5 px-2 font-medium">{p.name}</td>
-                      <td className="py-1.5 px-2 text-center">${(p.owed / 100).toFixed(0)}</td>
-                      <td className="py-1.5 px-2 text-center">${(p.paid / 100).toFixed(0)}</td>
-                      <td className={`py-1.5 px-2 text-center font-bold ${p.remaining > 0 ? "text-danger" : "text-accent"}`}>
-                        {p.remaining > 0 ? `$${(p.remaining / 100).toFixed(0)}` : "Paid"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        );
-      })}
-
-      <div className="bg-surface-alt rounded-xl border border-border p-4 space-y-3">
-        <h3 className="font-semibold text-sm">Record Payment</h3>
-        <div className="grid grid-cols-3 gap-2">
-          <select
-            value={payForm.feeId}
-            onChange={(e) => setPayForm({ ...payForm, feeId: e.target.value })}
-            className="px-2 py-1.5 rounded-lg border border-border bg-surface text-sm"
-          >
-            <option value="">Select fee...</option>
-            {fees.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-          </select>
-          <select
-            value={payForm.playerId}
-            onChange={(e) => setPayForm({ ...payForm, playerId: e.target.value })}
-            className="px-2 py-1.5 rounded-lg border border-border bg-surface text-sm"
-          >
-            <option value="">Select player...</option>
-            {players.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <input
-            value={payForm.amount}
-            onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })}
-            placeholder="$ Amount"
-            type="number"
-            className="px-2 py-1.5 rounded-lg border border-border bg-surface text-sm"
-          />
-        </div>
-        <button
-          onClick={recordPayment}
-          disabled={recording}
-          className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold disabled:opacity-50"
-        >
-          {recording ? "Recording..." : "Record Payment"}
-        </button>
-      </div>
-    </section>
-  );
-}
+const sections = [
+  {
+    title: "Announcements",
+    description: "Send emails to team members",
+    href: "/admin/announcements",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
+      </svg>
+    ),
+  },
+  {
+    title: "Players",
+    description: "Manage player profiles, NTRP, and ELO",
+    href: "/admin/players",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+      </svg>
+    ),
+  },
+  {
+    title: "USTA Sync & ELO",
+    description: "Sync scores from USTA and recalculate ratings",
+    href: "/admin/usta-sync",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+      </svg>
+    ),
+  },
+  {
+    title: "Payments",
+    description: "Track fees and record payments",
+    href: "/admin/payments",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+      </svg>
+    ),
+  },
+  {
+    title: "Tournaments",
+    description: "Create and manage tournaments",
+    href: "/admin/tournaments",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M18.75 4.236c.982.143 1.954.317 2.916.52A6.003 6.003 0 0016.27 9.728M18.75 4.236V4.5c0 2.108-.966 3.99-2.48 5.228m0 0a6.003 6.003 0 01-4.27 1.772 6.003 6.003 0 01-4.27-1.772" />
+      </svg>
+    ),
+  },
+  {
+    title: "Team Signups",
+    description: "Review and approve join requests",
+    href: "/admin/interest",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
+      </svg>
+    ),
+  },
+  {
+    title: "Analytics",
+    description: "Activity logs, login monitoring, usage stats",
+    href: "/admin/analytics",
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+      </svg>
+    ),
+  },
+];
 
 export default function AdminPage() {
   const router = useRouter();
-  const [players, setPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", email: "", ntrp_rating: 0, ntrp_type: "" });
-  const [message, setMessage] = useState("");
-  const [recalculating, setRecalculating] = useState(false);
-  const [syncingUsta, setSyncingUsta] = useState(false);
-  const [creatingTourney, setCreatingTourney] = useState(false);
-  const [tourneyForm, setTourneyForm] = useState({ name: "", format: "round_robin", matchType: "singles", playerIds: "" });
 
   useEffect(() => {
     fetch("/api/auth/me").then(async (r) => {
       if (!r.ok) { router.push("/login"); return; }
-      const d = (await r.json()) as { user: { is_admin: number; can_admin: boolean } | null };
+      const d = (await r.json()) as { user: { can_admin: boolean } | null };
       if (!d?.user?.can_admin) { router.push("/dashboard"); return; }
-      loadPlayers();
+      setLoading(false);
     });
   }, [router]);
-
-  async function loadPlayers() {
-    const res = await fetch("/api/admin/players");
-    if (res.ok) {
-      const data = (await res.json()) as { players: Player[] };
-      setPlayers(data.players);
-    }
-    setLoading(false);
-  }
-
-  function startEdit(p: Player) {
-    setEditingId(p.id);
-    setEditForm({ name: p.name, email: p.email, ntrp_rating: p.ntrp_rating, ntrp_type: p.ntrp_type });
-  }
-
-  async function saveEdit() {
-    if (!editingId) return;
-    const res = await fetch("/api/admin/players", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: editingId, ...editForm }),
-    });
-    if (res.ok) {
-      setEditingId(null);
-      setMessage("Player updated");
-      loadPlayers();
-    }
-  }
-
-  async function recalculateElo() {
-    setRecalculating(true);
-    setMessage("");
-    const res = await fetch("/api/admin/elo/recalculate", { method: "POST" });
-    if (res.ok) {
-      const data = (await res.json()) as { tournamentMatchesProcessed: number; leagueResultsProcessed: number; eloUpdates: number };
-      setMessage(`ELO recalculated: ${data.tournamentMatchesProcessed} tournament + ${data.leagueResultsProcessed} league matches, ${data.eloUpdates} updates`);
-      loadPlayers();
-    } else {
-      setMessage("Failed to recalculate ELO");
-    }
-    setRecalculating(false);
-  }
-
-  const [paymentData, setPaymentData] = useState<{ fees: FeeSummary[] } | null>(null);
-
-  useEffect(() => {
-    if (!loading) loadPayments();
-  }, [loading]);
-
-  async function loadPayments() {
-    try {
-      const res = await fetch("/api/admin/payments");
-      if (res.ok) setPaymentData(await res.json() as { fees: FeeSummary[] });
-    } catch { /* fees table may not exist yet */ }
-  }
 
   if (loading) return <div className="p-8 text-center text-slate-500">Loading...</div>;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Admin Panel</h1>
-        <a
-          href="/admin/analytics"
-          className="text-sm font-medium text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-          Analytics
-        </a>
+      <h1 className="text-2xl font-bold">Admin</h1>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {sections.map((s) => (
+          <Link
+            key={s.href}
+            href={s.href}
+            className="group flex items-start gap-4 p-4 rounded-xl border border-border bg-surface-alt hover:border-primary/30 hover:bg-primary/5 transition-all"
+          >
+            <div className="shrink-0 w-10 h-10 rounded-lg bg-primary/10 text-primary-light flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+              {s.icon}
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-sm group-hover:text-primary-light transition-colors">{s.title}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{s.description}</p>
+            </div>
+          </Link>
+        ))}
       </div>
-
-      {message && (
-        <div className="bg-sky-100 dark:bg-sky-900/30 text-sky-800 dark:text-sky-300 rounded-lg px-4 py-2 text-sm">
-          {message}
-        </div>
-      )}
-
-      {/* Actions */}
-      <section>
-        <h2 className="text-lg font-semibold mb-3">Actions</h2>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={recalculateElo}
-            disabled={recalculating}
-            className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold disabled:opacity-50"
-          >
-            {recalculating ? "Recalculating..." : "Recalculate All ELO"}
-          </button>
-          <button
-            onClick={async () => {
-              setSyncingUsta(true);
-              setMessage("");
-              const teamSlugs = ["senior-framers-2026", "junior-framers-2026"];
-              const results: string[] = [];
-              for (const slug of teamSlugs) {
-                try {
-                  const res = await fetch("/api/admin/usta-sync", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ teamSlug: slug }),
-                  });
-                  if (res.ok) {
-                    const data = (await res.json()) as { scorecards: number; updated: number; rosterSynced?: number };
-                    results.push(`${slug}: ${data.scorecards} scorecards, ${data.updated} updated, ${data.rosterSynced ?? 0} rostered`);
-                  } else {
-                    const err = (await res.json()) as { error?: string };
-                    results.push(`${slug}: ${err.error || "failed"}`);
-                  }
-                } catch (e) {
-                  results.push(`${slug}: ${e instanceof Error ? e.message : "error"}`);
-                }
-              }
-              setMessage(`USTA sync: ${results.join(" | ")}`);
-              setSyncingUsta(false);
-            }}
-            disabled={syncingUsta}
-            className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-semibold disabled:opacity-50"
-          >
-            {syncingUsta ? "Syncing..." : "Sync USTA Results"}
-          </button>
-        </div>
-      </section>
-
-      {/* Announcements */}
-      <AnnouncementSection setMessage={setMessage} />
-
-      {/* Interest Signups */}
-      <InterestSection setMessage={setMessage} />
-
-      {/* Create Tournament */}
-      <section>
-        <h2 className="text-lg font-semibold mb-3">Create Tournament</h2>
-        <div className="bg-surface-alt rounded-xl border border-border p-4 space-y-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">Name</label>
-            <input
-              value={tourneyForm.name}
-              onChange={(e) => setTourneyForm({ ...tourneyForm, name: e.target.value })}
-              placeholder="e.g. Spring Singles Championship"
-              className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium mb-1">Format</label>
-              <select
-                value={tourneyForm.format}
-                onChange={(e) => setTourneyForm({ ...tourneyForm, format: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm"
-              >
-                <option value="round_robin">Round Robin</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Type</label>
-              <select
-                value={tourneyForm.matchType}
-                onChange={(e) => setTourneyForm({ ...tourneyForm, matchType: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm"
-              >
-                <option value="singles">Singles</option>
-                <option value="doubles">Doubles</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              {tourneyForm.matchType === "doubles" ? "Doubles Pairs (player1:partner1, player2:partner2)" : "Player IDs (comma-separated)"}
-            </label>
-            <textarea
-              value={tourneyForm.playerIds}
-              onChange={(e) => setTourneyForm({ ...tourneyForm, playerIds: e.target.value })}
-              placeholder={tourneyForm.matchType === "doubles" ? "playerA_id:partnerA_id, playerB_id:partnerB_id" : "Leave empty to select from roster later"}
-              className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm h-16"
-            />
-          </div>
-          <button
-            onClick={async () => {
-              if (!tourneyForm.name) { setMessage("Tournament name required"); return; }
-              setCreatingTourney(true);
-              const res = await fetch("/api/admin/tournaments", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(tourneyForm),
-              });
-              if (res.ok) {
-                const data = (await res.json()) as { tournament: { slug: string }; matchCount: number };
-                setMessage(`Tournament created with ${data.matchCount} matches`);
-                setTourneyForm({ name: "", format: "round_robin", matchType: "singles", playerIds: "" });
-              } else {
-                const data = (await res.json()) as { error: string };
-                setMessage(`Error: ${data.error}`);
-              }
-              setCreatingTourney(false);
-            }}
-            disabled={creatingTourney}
-            className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold disabled:opacity-50"
-          >
-            {creatingTourney ? "Creating..." : "Create Tournament"}
-          </button>
-        </div>
-      </section>
-
-      {/* Payment Management */}
-      <PaymentSection players={players} setMessage={setMessage} />
-
-      {/* Players */}
-      <section>
-        <h2 className="text-lg font-semibold mb-3">Players ({players.length})</h2>
-        <div className="bg-surface-alt rounded-xl border border-border overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-border">
-                  <th className="text-left px-4 py-2 font-semibold">Name</th>
-                  <th className="text-left px-4 py-2 font-semibold">Email</th>
-                  <th className="text-center px-4 py-2 font-semibold">NTRP</th>
-                  <th className="text-center px-4 py-2 font-semibold">S-ELO</th>
-                  <th className="text-center px-4 py-2 font-semibold">D-ELO</th>
-                  <th className="px-4 py-2"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {players.map((p) => (
-                  <tr key={p.id}>
-                    {editingId === p.id ? (
-                      <>
-                        <td className="px-4 py-2">
-                          <input
-                            value={editForm.name}
-                            onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                            className="w-full px-2 py-1 rounded border border-border bg-white dark:bg-slate-900 text-sm"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            value={editForm.email}
-                            onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                            className="w-full px-2 py-1 rounded border border-border bg-white dark:bg-slate-900 text-sm"
-                          />
-                        </td>
-                        <td className="px-4 py-2 text-center">
-                          <input
-                            value={editForm.ntrp_type}
-                            onChange={(e) => setEditForm({ ...editForm, ntrp_type: e.target.value })}
-                            className="w-16 px-2 py-1 rounded border border-border bg-white dark:bg-slate-900 text-sm text-center"
-                          />
-                        </td>
-                        <td className="px-4 py-2 text-center text-slate-400">{p.singles_elo}</td>
-                        <td className="px-4 py-2 text-center text-slate-400">{p.doubles_elo}</td>
-                        <td className="px-4 py-2 text-right">
-                          <button onClick={saveEdit} className="text-xs text-accent font-semibold mr-2">Save</button>
-                          <button onClick={() => setEditingId(null)} className="text-xs text-slate-400">Cancel</button>
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="px-4 py-2 font-medium">
-                          {p.name}
-                          {p.is_admin === 1 && <span className="ml-1 text-[10px] bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 px-1 rounded">Admin</span>}
-                        </td>
-                        <td className="px-4 py-2 text-slate-500">{p.email}</td>
-                        <td className="px-4 py-2 text-center">{p.ntrp_type}</td>
-                        <td className="px-4 py-2 text-center font-mono">{p.singles_elo}</td>
-                        <td className="px-4 py-2 text-center font-mono">{p.doubles_elo}</td>
-                        <td className="px-4 py-2 text-right">
-                          <button onClick={() => startEdit(p)} className="text-xs text-primary-light hover:underline">Edit</button>
-                        </td>
-                      </>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

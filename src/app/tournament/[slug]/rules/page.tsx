@@ -1,6 +1,6 @@
 import { getDB } from "@/lib/db";
 import { notFound } from "next/navigation";
-import Link from "next/link";
+import { Breadcrumb } from "@/components/breadcrumb";
 
 export default async function TournamentRulesPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -16,8 +16,8 @@ export default async function TournamentRulesPage({ params }: { params: Promise<
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <Link href={`/tournament/${slug}`} className="text-sm text-primary hover:underline">&larr; Back to {tournament.name}</Link>
-        <h1 className="text-2xl font-bold mt-2">Tournament Rules</h1>
+        <Breadcrumb items={[{ label: tournament.name, href: `/tournament/${slug}` }, { label: "Rules" }]} />
+        <h1 className="text-2xl font-bold">Tournament Rules</h1>
       </div>
 
       <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-xl p-4">

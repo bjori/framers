@@ -8,6 +8,7 @@ import { MatchRsvp } from "@/components/match-rsvp";
 import { MatchDetailsEditor } from "@/components/match-details-editor";
 import { LineupAcknowledge } from "@/components/lineup-acknowledge";
 import { LineupChat } from "@/components/lineup-chat";
+import { Breadcrumb } from "@/components/breadcrumb";
 
 interface RsvpResponse {
   player_id: string;
@@ -185,9 +186,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
   return (
     <div className="space-y-6">
       <div>
-        <Link href={`/team/${slug}`} className="text-xs text-primary-light hover:underline mb-2 inline-block">
-          &larr; {team.name}
-        </Link>
+        <Breadcrumb items={[{ label: team.name, href: `/team/${slug}` }, { label: `Round ${match.round_number}` }]} />
         <div className="flex items-center gap-2">
           <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
             match.is_home ? "bg-accent/10 text-accent" : "bg-slate-200 dark:bg-slate-700 text-slate-500"

@@ -2,6 +2,7 @@ import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
+import { Breadcrumb } from "@/components/breadcrumb";
 import { PracticeRsvpWithCount } from "@/components/practice-rsvp";
 
 interface Attendee {
@@ -57,9 +58,7 @@ export default async function PracticeDetailPage({ params }: { params: Promise<{
   return (
     <div className="space-y-6">
       <div>
-        <Link href="/practice" className="text-xs text-primary-light hover:underline mb-2 inline-block">
-          &larr; All Practice Sessions
-        </Link>
+        <Breadcrumb items={[{ label: "Practice", href: "/practice" }, { label: ps.title }]} />
         <h1 className="text-xl font-bold">{ps.title}</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
           {dateStr} · {ps.start_time} – {ps.end_time}
