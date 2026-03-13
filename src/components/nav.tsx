@@ -125,6 +125,9 @@ export function Nav() {
                 Championship
               </Link>
             )}
+            <Link href="/players" className={navLinkClass(pathname.startsWith("/players") || pathname.startsWith("/player/"))}>
+              Players
+            </Link>
             {showAdminMenu && (
               <>
                 <div className="w-px h-5 bg-white/20 mx-1" />

@@ -1,33 +1,7 @@
 import { getDB } from "@/lib/db";
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { TournamentSchedule } from "@/components/tournament-schedule";
-import { TournamentStandings } from "@/components/tournament-standings";
-
-interface TournamentMatch {
-  id: string;
-  week: number;
-  round: number;
-  match_number: number;
-  participant1_id: string;
-  participant2_id: string;
-  winner_participant_id: string | null;
-  score1_sets: string | null;
-  score2_sets: string | null;
-  scheduled_date: string;
-  scheduled_time: string;
-  court: string;
-  status: string;
-  bye: number;
-  p1_name: string;
-  p2_name: string;
-  p1_player_id: string;
-  p2_player_id: string;
-  p1_email?: string;
-  p1_phone?: string | null;
-  p2_email?: string;
-  p2_phone?: string | null;
-}
+import { TournamentTabs } from "@/components/tournament-tabs";
+import type { TournamentMatch } from "@/components/tournament-schedule";
 
 interface Standing {
   participant_id: string;
@@ -139,9 +113,7 @@ export default async function TournamentPage({ params }: { params: Promise<{ slu
       .prepare(
         `SELECT tm.*,
                 p1.name as p1_name, tp1.player_id as p1_player_id,
-                p1.email as p1_email, p1.phone as p1_phone,
                 p2.name as p2_name, tp2.player_id as p2_player_id,
-                p2.email as p2_email, p2.phone as p2_phone,
                 p1partner.name as p1_partner_name, p2partner.name as p2_partner_name
          FROM tournament_matches tm
          LEFT JOIN tournament_participants tp1 ON tp1.id = tm.participant1_id
@@ -154,7 +126,7 @@ export default async function TournamentPage({ params }: { params: Promise<{ slu
          ORDER BY tm.week ASC, tm.scheduled_date ASC, tm.scheduled_time ASC`
       )
       .bind(tournament.id)
-      .all<TournamentMatch & { p1_partner_name: string | null; p2_partner_name: string | null; p1_email: string; p1_phone: string | null; p2_email: string; p2_phone: string | null }>()
+      .all<TournamentMatch & { p1_partner_name: string | null; p2_partner_name: string | null }>()
   ).results;
 
   const matches: TournamentMatch[] = rawMatches.map((m) => ({
@@ -170,28 +142,24 @@ export default async function TournamentPage({ params }: { params: Promise<{ slu
   }));
   const standings = computeStandings(matches, standingsParticipants);
 
-  const completedCount = matches.filter((m: TournamentMatch) => m.status === "completed").length;
-  const totalCount = matches.filter((m: TournamentMatch) => !m.bye).length;
+  const completedCount = matches.filter((m) => m.status === "completed").length;
+  const totalCount = matches.filter((m) => !m.bye).length;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">{tournament.name}</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {tournament.format.replace("_", " ")} &middot; {tournament.match_type} &middot; {completedCount}/{totalCount} matches completed
-          </p>
-        </div>
-        <Link
-          href={`/tournament/${slug}/rules`}
-          className="shrink-0 px-3 py-1.5 text-sm font-semibold rounded-lg border border-border hover:bg-surface-alt transition-colors"
-        >
-          Rules
-        </Link>
+      <div>
+        <h1 className="text-2xl font-bold">{tournament.name}</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+          {tournament.format.replace("_", " ")} &middot; {tournament.match_type} &middot; {completedCount}/{totalCount} matches completed
+        </p>
       </div>
 
-      <TournamentStandings standings={standings} isDoubles={isDoubles} />
-      <TournamentSchedule matches={matches} slug={slug} />
+      <TournamentTabs
+        slug={slug}
+        matches={matches}
+        standings={standings}
+        isDoubles={isDoubles}
+      />
     </div>
   );
 }
