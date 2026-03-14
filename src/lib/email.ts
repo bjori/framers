@@ -6,6 +6,7 @@ interface SendEmailOptions {
   subject: string;
   html: string;
   from?: string;
+  headers?: Record<string, string>;
 }
 
 /**
@@ -70,7 +71,7 @@ export function emailTemplate(content: string, options?: {
 </html>`;
 }
 
-export async function sendEmail({ to, subject, html, from }: SendEmailOptions): Promise<boolean> {
+export async function sendEmail({ to, subject, html, from, headers: customHeaders }: SendEmailOptions): Promise<boolean> {
   const { env } = await getCloudflareContext({ async: true });
   const resendKey = env.RESEND_API_KEY;
 
@@ -79,19 +80,24 @@ export async function sendEmail({ to, subject, html, from }: SendEmailOptions): 
     return false;
   }
 
+  const payload: Record<string, unknown> = {
+    from: from ?? "Greenbrook Framers <captain@framers.app>",
+    to,
+    subject,
+    html,
+    tracking: { open: true, click: true },
+  };
+  if (customHeaders && Object.keys(customHeaders).length > 0) {
+    payload.headers = customHeaders;
+  }
+
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${resendKey}`,
     },
-    body: JSON.stringify({
-      from: from ?? "Greenbrook Framers <captain@framers.app>",
-      to,
-      subject,
-      html,
-      tracking: { open: true, click: true },
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (!res.ok) {
@@ -124,13 +130,19 @@ export async function sendEmailBatch(
   }
 
   const defaultFrom = "Greenbrook Framers <captain@framers.app>";
-  const payload = emails.map((e) => ({
-    from: e.from ?? defaultFrom,
-    to: e.to,
-    subject: e.subject,
-    html: e.html,
-    tracking: { open: true, click: true },
-  }));
+  const payload = emails.map((e) => {
+    const item: Record<string, unknown> = {
+      from: e.from ?? defaultFrom,
+      to: e.to,
+      subject: e.subject,
+      html: e.html,
+      tracking: { open: true, click: true },
+    };
+    if (e.headers && Object.keys(e.headers).length > 0) {
+      item.headers = e.headers;
+    }
+    return item;
+  });
 
   const res = await fetch("https://api.resend.com/emails/batch", {
     method: "POST",

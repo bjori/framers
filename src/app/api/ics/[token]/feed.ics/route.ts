@@ -19,6 +19,11 @@ function addHours(dateStr: string, timeStr: string, hours: number): string {
   return `${dateStr}T${endTime}:00`;
 }
 
+const POSITION_LABELS: Record<string, string> = {
+  D1A: "Doubles 1", D1B: "Doubles 1", D2A: "Doubles 2", D2B: "Doubles 2",
+  D3A: "Doubles 3", D3B: "Doubles 3", S1: "Singles 1", S2: "Singles 2",
+};
+
 export async function GET(_request: NextRequest, { params }: Params) {
   const { token } = await params;
   const db = await getDB();
@@ -41,42 +46,109 @@ export async function GET(_request: NextRequest, { params }: Params) {
     ],
   });
 
-  // League matches
+  // League matches + lineup data for this player
   const teamMatches = (await db.prepare(
-    `SELECT lm.id, lm.match_date, lm.match_time, lm.opponent_team, lm.location, lm.is_home, lm.status, lm.team_score,
+    `SELECT lm.id, lm.match_date, lm.match_time, lm.opponent_team, lm.location,
+            lm.is_home, lm.status, lm.team_score, lm.notes, lm.usta_url,
             t.name as team_name, t.slug as team_slug,
-            a.status as rsvp_status
+            a.status as rsvp_status,
+            l.id as lineup_id, l.status as lineup_status
      FROM league_matches lm
      JOIN teams t ON t.id = lm.team_id
      JOIN team_memberships tm ON tm.team_id = t.id AND tm.player_id = ?
      LEFT JOIN availability a ON a.match_id = lm.id AND a.player_id = ?
+     LEFT JOIN lineups l ON l.match_id = lm.id
      ORDER BY lm.match_date`
   ).bind(player.id, player.id).all()).results as Array<{
     id: string; match_date: string; match_time: string | null; opponent_team: string;
     location: string | null; is_home: number; status: string; team_score: string | null;
+    notes: string | null; usta_url: string | null;
     team_name: string; team_slug: string; rsvp_status: string | null;
+    lineup_id: string | null; lineup_status: string | null;
   }>;
+
+  // Batch-fetch all lineup slots for matches that have lineups
+  const lineupIds = teamMatches.map((m) => m.lineup_id).filter(Boolean) as string[];
+  const allSlots = lineupIds.length > 0
+    ? (await db.prepare(
+        `SELECT ls.lineup_id, ls.position, ls.player_id, ls.is_alternate, p.name as player_name
+         FROM lineup_slots ls
+         JOIN players p ON p.id = ls.player_id
+         WHERE ls.lineup_id IN (${lineupIds.map(() => "?").join(",")})
+         ORDER BY ls.position`
+      ).bind(...lineupIds).all<{
+        lineup_id: string; position: string; player_id: string; is_alternate: number; player_name: string;
+      }>()).results
+    : [];
+
+  const slotsByLineup = new Map<string, typeof allSlots>();
+  for (const slot of allSlots) {
+    const arr = slotsByLineup.get(slot.lineup_id) ?? [];
+    arr.push(slot);
+    slotsByLineup.set(slot.lineup_id, arr);
+  }
 
   for (const m of teamMatches) {
     const time = m.match_time || "18:00";
     const venue = m.is_home ? "Greenbrook (Home)" : `Away - ${m.opponent_team}`;
-    const rsvp = m.rsvp_status ? ` | Your RSVP: ${m.rsvp_status}` : "";
-    const score = m.team_score ? ` | Result: ${m.team_score}` : "";
+    const matchUrl = `https://framers.app/team/${m.team_slug}/match/${m.id}`;
 
-    const status = m.status === "completed" ? ICalEventStatus.CONFIRMED
-      : m.status === "cancelled" ? ICalEventStatus.CANCELLED
+    const slots = m.lineup_id ? (slotsByLineup.get(m.lineup_id) ?? []) : [];
+    const mySlots = slots.filter((s) => s.player_id === player.id && s.is_alternate === 0);
+    const lineupConfirmed = m.lineup_status === "confirmed" || m.lineup_status === "locked";
+    const inLineup = mySlots.length > 0 && lineupConfirmed;
+
+    // Title: HOLD → Confirmed with position → Completed with score
+    let summary: string;
+    if (m.status === "completed") {
+      summary = `${m.team_name} vs ${m.opponent_team}${m.team_score ? ` (${m.team_score})` : ""}`;
+    } else if (inLineup) {
+      const pos = mySlots.map((s) => POSITION_LABELS[s.position] || s.position).join(", ");
+      summary = `${m.team_name} vs ${m.opponent_team} — ${pos}`;
+    } else if (lineupConfirmed) {
+      summary = `${m.team_name} vs ${m.opponent_team} (not in lineup)`;
+    } else {
+      summary = `HOLD: ${m.team_name} vs ${m.opponent_team}`;
+    }
+
+    // Status: player in lineup or completed = CONFIRMED, cancelled = CANCELLED, else TENTATIVE
+    const status = m.status === "cancelled" ? ICalEventStatus.CANCELLED
+      : (m.status === "completed" || inLineup) ? ICalEventStatus.CONFIRMED
       : ICalEventStatus.TENTATIVE;
+
+    // Build description
+    const descParts: string[] = [`USTA League Match — ${venue}`];
+    if (m.rsvp_status) descParts.push(`Your RSVP: ${m.rsvp_status}`);
+    if (m.team_score) descParts.push(`Result: ${m.team_score}`);
+    if (m.notes) descParts.push(`\nNotes: ${m.notes}`);
+
+    if (lineupConfirmed && slots.length > 0) {
+      descParts.push("\nLineup:");
+      const starters = slots.filter((s) => s.is_alternate === 0);
+      for (const s of starters) {
+        const label = POSITION_LABELS[s.position] || s.position;
+        const me = s.player_id === player.id ? " ← you" : "";
+        descParts.push(`  ${label} (${s.position}): ${s.player_name}${me}`);
+      }
+      const alts = slots.filter((s) => s.is_alternate === 1);
+      if (alts.length > 0) {
+        descParts.push(`  Alternates: ${alts.map((s) => s.player_name).join(", ")}`);
+      }
+    }
+
+    if (m.usta_url) descParts.push(`\nUSTA Scorecard: ${m.usta_url}`);
+    descParts.push(`\nView: ${matchUrl}`);
 
     cal.createEvent({
       id: `league-${m.id}@framers.app`,
       start: localTime(m.match_date, time),
       timezone: TZ,
       end: addHours(m.match_date, time, 3),
-      summary: `${m.team_name} vs ${m.opponent_team}`,
-      description: `USTA League Match\n${venue}${rsvp}${score}\n\nView: https://framers.app/team/${m.team_slug}/match/${m.id}`,
+      summary,
+      description: descParts.join("\n"),
       location: m.location || venue,
       status,
-      url: `https://framers.app/team/${m.team_slug}/match/${m.id}`,
+      url: matchUrl,
     });
   }
 
@@ -154,8 +226,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
   return new NextResponse(cal.toString(), {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
-      "Content-Disposition": `attachment; filename="framers-${player.name.toLowerCase().replace(/\s+/g, "-")}.ics"`,
-      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
     },
   });
 }

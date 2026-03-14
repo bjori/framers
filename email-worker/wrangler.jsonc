@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "framers-email-router",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "framers-v2",
+      "database_id": "8d8cf8ea-3c1b-4019-99d6-64ccf8f71606"
+    }
+  ]
+}

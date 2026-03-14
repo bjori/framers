@@ -14,6 +14,8 @@ export default function CalendarSubscribe() {
     }
   }, []);
 
+  const webcalUrl = feedUrl?.replace(/^https?:\/\//, "webcal://") ?? null;
+
   async function getFeedUrl() {
     setLoading(true);
     try {
@@ -60,7 +62,7 @@ export default function CalendarSubscribe() {
         )}
       </div>
       <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
-        Subscribe to your personal calendar feed to see all your matches in your calendar app.
+        Subscribe to your personal calendar feed — match dates show as HOLDs, then update with your lineup position when confirmed.
       </p>
       {!feedUrl ? (
         <button
@@ -71,7 +73,16 @@ export default function CalendarSubscribe() {
           {loading ? "Generating..." : "Get Calendar Link"}
         </button>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
+          <a
+            href={webcalUrl!}
+            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary-light transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            Subscribe in Calendar App
+          </a>
           <div className="flex items-stretch gap-2">
             <input
               readOnly
@@ -80,14 +91,16 @@ export default function CalendarSubscribe() {
             />
             <button
               onClick={copyUrl}
-              className="px-3 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary-light transition-colors shrink-0"
+              className="px-3 py-2 rounded-lg border border-border bg-surface text-sm font-semibold hover:bg-surface-alt transition-colors shrink-0"
             >
               {copied ? "Copied!" : "Copy"}
             </button>
           </div>
-          <p className="text-xs text-slate-400">
-            Add this URL to Google Calendar, Apple Calendar, or Outlook as a subscription.
-          </p>
+          <div className="text-xs text-slate-400 space-y-1">
+            <p><strong>iPhone/Mac:</strong> Tap &ldquo;Subscribe in Calendar App&rdquo; above.</p>
+            <p><strong>Google Calendar:</strong> Copy the URL → Settings → Add calendar → From URL → paste.</p>
+            <p className="text-slate-300 dark:text-slate-500">Your calendar will auto-refresh with lineup changes.</p>
+          </div>
         </div>
       )}
     </section>

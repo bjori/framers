@@ -1,0 +1,97 @@
+import PostalMime from "postal-mime";
+
+interface Env {
+  DB: D1Database;
+  RESEND_API_KEY: string;
+}
+
+// Map list addresses to DB lookups
+// "type" determines which table to query for members
+const LIST_CONFIG: Record<string, { slug: string; type: "team" | "tournament" }> = {
+  "seniors@framers.app": { slug: "senior-framers-2026", type: "team" },
+  "juniors@framers.app": { slug: "junior-framers-2026", type: "team" },
+  "singles@framers.app": { slug: "singles-championship-2026", type: "tournament" },
+};
+
+async function getListMembers(db: D1Database, config: { slug: string; type: "team" | "tournament" }): Promise<{ email: string; name: string }[]> {
+  if (config.type === "team") {
+    return (await db.prepare(
+      `SELECT p.email, p.name FROM team_memberships tm
+       JOIN players p ON p.id = tm.player_id
+       WHERE tm.team_id = (SELECT id FROM teams WHERE slug = ?) AND tm.active = 1`
+    ).bind(config.slug).all<{ email: string; name: string }>()).results;
+  }
+
+  return (await db.prepare(
+    `SELECT p.email, p.name FROM tournament_participants tp
+     JOIN players p ON p.id = tp.player_id
+     WHERE tp.tournament_id = (SELECT id FROM tournaments WHERE slug = ?)`
+  ).bind(config.slug).all<{ email: string; name: string }>()).results;
+}
+
+export default {
+  async email(message: ForwardableEmailMessage, env: Env): Promise<void> {
+    const recipient = message.to.toLowerCase();
+    const config = LIST_CONFIG[recipient];
+
+    if (!config) {
+      message.setReject("550 No such list");
+      return;
+    }
+
+    const senderAddress = message.from.toLowerCase();
+
+    const members = await getListMembers(env.DB, config);
+    if (members.length === 0) {
+      message.setReject("550 List has no members");
+      return;
+    }
+
+    // Parse the inbound email to extract subject, text, and HTML
+    const rawEmail = await new Response(message.raw).arrayBuffer();
+    const parsed = await new PostalMime().parse(rawEmail);
+
+    const subject = parsed.subject || "(no subject)";
+    const htmlBody = parsed.html || (parsed.text ? `<pre style="font-family: sans-serif; white-space: pre-wrap;">${escapeHtml(parsed.text)}</pre>` : "<p>(empty message)</p>");
+
+    // Extract sender display name from the From header
+    const senderName = parsed.from?.name || senderAddress.split("@")[0];
+
+    // Filter out sender so they don't get their own email
+    const recipients = members.filter((m) => m.email.toLowerCase() !== senderAddress);
+    if (recipients.length === 0) return;
+
+    const listName = recipient.split("@")[0];
+    const payload = recipients.map((r) => ({
+      from: `${senderName} via Framers <captain@framers.app>`,
+      to: r.email,
+      subject: `[${listName}] ${subject}`,
+      html: htmlBody,
+      reply_to: senderAddress,
+      tracking: { open: false, click: false },
+    }));
+
+    // Resend batch API max 100 per call
+    for (let i = 0; i < payload.length; i += 100) {
+      const batch = payload.slice(i, i + 100);
+      const res = await fetch("https://api.resend.com/emails/batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        },
+        body: JSON.stringify(batch),
+      });
+
+      if (!res.ok) {
+        console.error(`[EMAIL-WORKER] Batch send failed: ${await res.text()}`);
+      } else {
+        console.log(`[EMAIL-WORKER] Forwarded to ${batch.length} recipients on ${listName}`);
+      }
+    }
+  },
+};
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
