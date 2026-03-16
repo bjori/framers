@@ -18,8 +18,8 @@ const PLAYER_NAME_MAP: Record<string, string> = {
   "turner,jeff": "a1b2c3d4-1111-4000-8000-000000000006",
   "vemuri,sri": "bbbf95a3-2773-4035-8b20-99354ab33a0d",
   "zdarko,joel": "ad74e6ea-ffcc-419f-8c15-3dcdf366d490",
-  "alarcon,jun": "a1b2c3d4-1111-4000-8000-000000000008",
-  "mazzoni,stefano": "a1b2c3d4-1111-4000-8000-000000000007",
+  "alarcon,jun": "a1b2c3d4-3333-4000-8000-000000000002",
+  "mazzoni,stefano": "a1b2c3d4-3333-4000-8000-000000000001",
 };
 
 export function resolvePlayer(ustaName: string): string | null {
@@ -61,12 +61,21 @@ function normalizeUstaName(ustaName: string): string {
   return ustaName.toLowerCase().trim();
 }
 
+interface ParsedScheduleMatch {
+  roundNumber: number;
+  matchDate: string;
+  opponentTeam: string;
+  isHome: boolean;
+}
+
 export interface SyncResult {
   teamSlug: string;
   scorecards: number;
   updated: number;
   rosterSynced: number;
   rosterNames: string[];
+  scheduleCreated: number;
+  scheduleUpdated: number;
 }
 
 export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<SyncResult> {
@@ -74,7 +83,7 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     .bind(teamSlug).first<{ id: string; usta_team_id: string }>();
 
   if (!team?.usta_team_id) {
-    return { teamSlug, scorecards: 0, updated: 0, rosterSynced: 0, rosterNames: [] };
+    return { teamSlug, scorecards: 0, updated: 0, rosterSynced: 0, rosterNames: [], scheduleCreated: 0, scheduleUpdated: 0 };
   }
 
   const teamUrl = `${USTA_BASE}/teaminfo.asp?id=${team.usta_team_id}`;
@@ -109,6 +118,61 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     if (matchTime) {
       await db.prepare("UPDATE league_matches SET match_time = ?, notes = ? WHERE team_id = ? AND match_date = ?")
         .bind(matchTime, tu.rawTime, team.id, tu.date).run();
+    }
+  }
+
+  // Parse schedule: extract matches with opponents and home/away
+  const scheduleMatches: ParsedScheduleMatch[] = [];
+  const schedSection = teamHtml.indexOf("Team Schedule");
+  const rosterStart = teamHtml.indexOf("Team Roster");
+  if (schedSection > -1) {
+    const schedHtml = teamHtml.substring(schedSection, rosterStart > -1 ? rosterStart : undefined);
+    // Each match spans multiple lines:
+    //   &nbsp;ROUND&nbsp; ... MM/DD/YY ... opponent link ... Home|Away
+    const schedRegex = /&nbsp;(\d+)&nbsp;[\s\S]*?(\d{2})\/(\d{2})\/(\d{2})<\/td>[\s\S]*?(?:Teaminfo|teaminfo)\.asp\?id=\d+>([^<]+)<\/a><\/td>\s*<td[^>]*>(Home|Away)<\/td>/gi;
+    let schedMatch;
+    while ((schedMatch = schedRegex.exec(schedHtml)) !== null) {
+      scheduleMatches.push({
+        roundNumber: parseInt(schedMatch[1]),
+        matchDate: `20${schedMatch[4]}-${schedMatch[2]}-${schedMatch[3]}`,
+        opponentTeam: schedMatch[5].trim(),
+        isHome: schedMatch[6].toLowerCase() === "home",
+      });
+    }
+  }
+
+  // Create or update league_matches from schedule
+  let scheduleCreated = 0;
+  let scheduleUpdated = 0;
+  for (const sm of scheduleMatches) {
+    const existing = await db.prepare(
+      "SELECT id, opponent_team, is_home FROM league_matches WHERE team_id = ? AND match_date = ? AND round_number = ?"
+    ).bind(team.id, sm.matchDate, sm.roundNumber).first<{ id: string; opponent_team: string; is_home: number }>();
+
+    if (existing) {
+      if (existing.opponent_team !== sm.opponentTeam || existing.is_home !== (sm.isHome ? 1 : 0)) {
+        await db.prepare(
+          "UPDATE league_matches SET opponent_team = ?, is_home = ? WHERE id = ?"
+        ).bind(sm.opponentTeam, sm.isHome ? 1 : 0, existing.id).run();
+        scheduleUpdated++;
+      }
+    } else {
+      // Also check by date only (no round) in case round changed
+      const byDate = await db.prepare(
+        "SELECT id FROM league_matches WHERE team_id = ? AND match_date = ?"
+      ).bind(team.id, sm.matchDate).first<{ id: string }>();
+
+      if (byDate) {
+        await db.prepare(
+          "UPDATE league_matches SET opponent_team = ?, is_home = ?, round_number = ? WHERE id = ?"
+        ).bind(sm.opponentTeam, sm.isHome ? 1 : 0, sm.roundNumber, byDate.id).run();
+        scheduleUpdated++;
+      } else {
+        await db.prepare(
+          "INSERT INTO league_matches (id, team_id, round_number, opponent_team, match_date, is_home, status) VALUES (?, ?, ?, ?, ?, ?, 'open')"
+        ).bind(crypto.randomUUID(), team.id, sm.roundNumber, sm.opponentTeam, sm.matchDate, sm.isHome ? 1 : 0).run();
+        scheduleCreated++;
+      }
     }
   }
 
@@ -288,5 +352,7 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     updated: updatedCount,
     rosterSynced: rosterPlayerIds.length,
     rosterNames,
+    scheduleCreated,
+    scheduleUpdated,
   };
 }
