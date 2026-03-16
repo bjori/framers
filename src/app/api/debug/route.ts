@@ -565,6 +565,39 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (body.action === "tr-backfill") {
+      const teamName = (body as { teamName?: string }).teamName;
+      const isOwn = (body as { isOwn?: boolean }).isOwn ?? false;
+
+      if (!teamName) {
+        // Return list of all teams to scout
+        const oppTeams = (await db.prepare(
+          `SELECT DISTINCT opponent_team FROM league_matches
+           WHERE team_id IN (SELECT id FROM teams WHERE status IN ('active','upcoming'))
+           AND opponent_team IS NOT NULL`
+        ).all<{ opponent_team: string }>()).results;
+        return NextResponse.json({
+          teams: [
+            { name: "GREENBROOK RS 40AM3.0A", isOwn: true },
+            ...oppTeams.map((t) => ({ name: t.opponent_team, isOwn: false })),
+          ],
+        });
+      }
+
+      const { scoutOpponent, scoutOwnTeam, getCachedTeam } = await import("@/lib/tr-scouting");
+      try {
+        if (isOwn) {
+          await scoutOwnTeam(teamName, 2026, { force: true });
+        } else {
+          await scoutOpponent(teamName, 2026, { force: true });
+        }
+        const cached = await getCachedTeam(teamName);
+        return NextResponse.json({ ok: true, team: teamName, playerCount: cached.length });
+      } catch (e) {
+        return NextResponse.json({ ok: false, team: teamName, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      }
+    }
+
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
