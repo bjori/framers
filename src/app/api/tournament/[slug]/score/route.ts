@@ -173,5 +173,21 @@ export async function POST(
   }
 
   await track("score_submitted", { playerId: session.player_id, detail: `tournament:${matchId}` });
+
+  // Fire-and-forget: generate form summaries + regenerate match quips
+  (async () => {
+    try {
+      const { generateTournamentForm } = await import("@/lib/player-form");
+      await Promise.all([
+        generateTournamentForm(match.p1_player_id),
+        generateTournamentForm(match.p2_player_id),
+      ]);
+      const { regenerateAllQuips } = await import("@/lib/match-predictions");
+      await regenerateAllQuips(tournament.id);
+    } catch (e) {
+      console.error("[Form/quip generation]", e);
+    }
+  })();
+
   return NextResponse.json({ ok: true });
 }

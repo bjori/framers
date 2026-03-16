@@ -449,6 +449,34 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 5.4 Generate league form summaries for players in recently completed matches
+  if (totalUpdated > 0) {
+    try {
+      const { generateLeagueForm } = await import("@/lib/player-form");
+      const recentPlayers = (await db.prepare(
+        `SELECT DISTINCT lmr.player1_id, lmr.player2_id
+         FROM league_match_results lmr
+         JOIN league_matches lm ON lm.id = lmr.match_id
+         WHERE lm.status = 'completed' AND lm.match_date >= ?`
+      ).bind(new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10)).all<{ player1_id: string | null; player2_id: string | null }>()).results;
+
+      const playerIds = new Set<string>();
+      for (const r of recentPlayers) {
+        if (r.player1_id) playerIds.add(r.player1_id);
+        if (r.player2_id) playerIds.add(r.player2_id);
+      }
+
+      let formCount = 0;
+      for (const pid of playerIds) {
+        await generateLeagueForm(pid);
+        formCount++;
+      }
+      if (formCount > 0) log.push(`[League form] Generated for ${formCount} players`);
+    } catch (e) {
+      log.push(`[League form] error — ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   // 5.5 TennisRecord scouting: quick-scout just-completed opponents + deep-scout upcoming
   try {
     const { quickScoutOpponent, scoutOpponent, scoutOwnTeam, isCacheFresh } = await import("@/lib/tr-scouting");
@@ -706,6 +734,18 @@ export async function GET(request: NextRequest) {
       if (alreadySent > 0) continue;
 
       try {
+        // Regenerate match quips before building digest
+        try {
+          const { regenerateAllQuips } = await import("@/lib/match-predictions");
+          const tournamentId = (await db.prepare("SELECT id FROM tournaments WHERE slug = ?").bind(t.slug).first<{ id: string }>())?.id;
+          if (tournamentId) {
+            const quipCount = await regenerateAllQuips(tournamentId);
+            if (quipCount > 0) log.push(`[Quips] ${t.slug}: regenerated ${quipCount} match predictions`);
+          }
+        } catch (e) {
+          log.push(`[Quips] ${t.slug}: error — ${e instanceof Error ? e.message : String(e)}`);
+        }
+
         const data = await gatherDigestData(db, t.slug);
         if (!data) {
           log.push(`[Digest] ${t.slug}: no results this week, skipping`);

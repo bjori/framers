@@ -35,6 +35,12 @@ const SCHEMA_STATEMENTS = [
 const MIGRATIONS = [
   `ALTER TABLE team_memberships ADD COLUMN usta_registered INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE players ADD COLUMN tennisrecord_rating REAL`,
+  `ALTER TABLE players ADD COLUMN tournament_form TEXT`,
+  `ALTER TABLE players ADD COLUMN league_form TEXT`,
+  `ALTER TABLE players ADD COLUMN form_updated_at TEXT`,
+  `ALTER TABLE tournament_matches ADD COLUMN pre_match_quip TEXT`,
+  `ALTER TABLE tournament_matches ADD COLUMN win_probability REAL`,
+  `ALTER TABLE tournament_matches ADD COLUMN quip_updated_at TEXT`,
 ];
 
 export async function GET() {

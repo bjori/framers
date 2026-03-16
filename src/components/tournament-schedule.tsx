@@ -22,6 +22,8 @@ export interface TournamentMatch {
   p2_name: string;
   p1_player_id: string;
   p2_player_id: string;
+  pre_match_quip: string | null;
+  win_probability: number | null;
 }
 
 type Filter = "all" | "completed" | "upcoming" | "needs-score";
@@ -49,6 +51,18 @@ function getMatchStatus(m: TournamentMatch): "completed" | "needs-score" | "upco
   const matchDate = new Date(m.scheduled_date + "T" + (m.scheduled_time || "23:59"));
   if (matchDate < now) return "needs-score";
   return "upcoming";
+}
+
+function ProbabilityBadge({ prob, p1Name }: { prob: number; p1Name: string }) {
+  const favored = prob >= 0.5;
+  const pct = Math.round((favored ? prob : 1 - prob) * 100);
+  const firstName = p1Name.split(" ")[0];
+  const label = favored ? firstName : "";
+  return (
+    <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400" title={`${firstName} has ${Math.round(prob * 100)}% chance`}>
+      {label ? `${label} ` : ""}{pct}%
+    </span>
+  );
 }
 
 export function TournamentSchedule({ matches, slug }: { matches: TournamentMatch[]; slug: string }) {
@@ -122,6 +136,9 @@ export function TournamentSchedule({ matches, slug }: { matches: TournamentMatch
                           </span>
                         </div>
                         {score && <p className="text-xs text-slate-500 mt-0.5">{score}</p>}
+                        {!score && m.pre_match_quip && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 italic">{m.pre_match_quip}</p>
+                        )}
                         <p className="text-[11px] text-slate-400 mt-0.5">
                           {new Date(m.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                           {m.scheduled_time ? ` at ${m.scheduled_time}` : ""}
@@ -129,6 +146,9 @@ export function TournamentSchedule({ matches, slug }: { matches: TournamentMatch
                         </p>
                       </div>
                       <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        {status !== "completed" && m.win_probability != null && (
+                          <ProbabilityBadge prob={m.win_probability} p1Name={m.p1_name} />
+                        )}
                         <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                           status === "completed"
                             ? "bg-accent/10 text-accent"

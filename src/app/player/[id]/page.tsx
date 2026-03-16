@@ -12,6 +12,9 @@ interface Player {
   singles_elo: number;
   doubles_elo: number;
   is_admin: number;
+  tennisrecord_rating: number | null;
+  tournament_form: string | null;
+  league_form: string | null;
 }
 
 interface MatchRecord {
@@ -154,6 +157,11 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
         <h1 className="text-2xl font-bold">{player.name}</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
           NTRP {player.ntrp_type}
+          {player.tennisrecord_rating != null && (
+            <span className="ml-2 text-xs font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+              TR {player.tennisrecord_rating.toFixed(2)}
+            </span>
+          )}
           {player.is_admin ? " · Admin" : ""}
         </p>
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm">
@@ -169,6 +177,24 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
           )}
         </div>
       </div>
+
+      {/* Form Summaries */}
+      {(player.tournament_form || player.league_form) && (
+        <div className="space-y-2">
+          {player.tournament_form && (
+            <div className="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-xl px-4 py-3">
+              <p className="text-[10px] font-bold uppercase text-sky-600 dark:text-sky-400 tracking-wider mb-1">Tournament Form</p>
+              <p className="text-sm italic text-sky-900 dark:text-sky-200">{player.tournament_form}</p>
+            </div>
+          )}
+          {player.league_form && (
+            <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl px-4 py-3">
+              <p className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400 tracking-wider mb-1">League Form</p>
+              <p className="text-sm italic text-emerald-900 dark:text-emerald-200">{player.league_form}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ELO Ratings */}
       <div className="grid grid-cols-2 gap-4">

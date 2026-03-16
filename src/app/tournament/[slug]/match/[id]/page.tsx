@@ -49,6 +49,7 @@ export default async function TournamentMatchPage({
       p1_name: string; p1_player_id: string; p1_email: string; p1_phone: string | null;
       p2_name: string; p2_player_id: string; p2_email: string; p2_phone: string | null;
       p1_partner_name: string | null; p2_partner_name: string | null;
+      pre_match_quip: string | null; win_probability: number | null;
     }>();
 
   if (!match) notFound();
@@ -98,6 +99,51 @@ export default async function TournamentMatchPage({
           <span className="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-danger/10 text-danger">Forfeit</span>
         )}
       </div>
+
+      {/* Prediction preview for scheduled matches / result call for completed */}
+      {!isCompleted && match.win_probability != null && (
+        <section className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
+          <p className="text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400 tracking-wider mb-2">Match Preview</p>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="flex-1">
+              <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                <span>{p1Display.split(" ")[0]}</span>
+                <span>{p2Display.split(" ")[0]}</span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden flex">
+                <div
+                  className="bg-sky-500 h-full transition-all"
+                  style={{ width: `${Math.round(match.win_probability * 100)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-slate-500 mt-0.5">
+                <span>{Math.round(match.win_probability * 100)}%</span>
+                <span>{Math.round((1 - match.win_probability) * 100)}%</span>
+              </div>
+            </div>
+          </div>
+          {match.pre_match_quip && (
+            <p className="text-sm italic text-amber-900 dark:text-amber-200">{match.pre_match_quip}</p>
+          )}
+        </section>
+      )}
+      {isCompleted && match.win_probability != null && (
+        (() => {
+          const p1Won = match.winner_participant_id === match.participant1_id;
+          const favoredP1 = match.win_probability >= 0.5;
+          const wasUpset = p1Won !== favoredP1;
+          return (
+            <div className={`rounded-xl border px-4 py-2 text-xs font-semibold text-center ${
+              wasUpset
+                ? "bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-300"
+                : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300"
+            }`}>
+              {wasUpset ? "Upset!" : "Called it!"} {p1Won ? p1Display : p2Display} won
+              {" "}({favoredP1 ? `was ${Math.round(match.win_probability * 100)}%` : `was ${Math.round((1 - match.win_probability) * 100)}%`} favorite)
+            </div>
+          );
+        })()
+      )}
 
       {/* Score display */}
       {isCompleted && s1.length > 0 && (

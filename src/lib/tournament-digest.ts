@@ -58,6 +58,8 @@ interface UpcomingMatch {
   p1Record: string;
   p2Record: string;
   scheduledDate: string | null;
+  quip: string | null;
+  winProbability: number | null;
 }
 
 export interface DigestData {
@@ -153,6 +155,7 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
     `SELECT tm.id, tm.week, tm.participant1_id, tm.participant2_id,
             tm.winner_participant_id, tm.score1_sets, tm.score2_sets,
             tm.status, tm.updated_at, tm.scheduled_date,
+            tm.pre_match_quip, tm.win_probability,
             p1.name as p1_name, p2.name as p2_name,
             tp1.player_id as p1_player_id, tp2.player_id as p2_player_id
      FROM tournament_matches tm
@@ -162,7 +165,7 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
      LEFT JOIN players p2 ON p2.id = tp2.player_id
      WHERE tm.tournament_id = ? AND tm.bye = 0
      ORDER BY tm.week, tm.match_number`
-  ).bind(tournament.id).all<TournamentMatch>()).results;
+  ).bind(tournament.id).all<TournamentMatch & { pre_match_quip: string | null; win_probability: number | null }>()).results;
 
   const totalWeeks = Math.max(...allMatches.map((m) => m.week), 0);
   const completedWeeks = new Set(
@@ -245,6 +248,8 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
         p1Record: p1Standing ? `${p1Standing.wins}-${p1Standing.losses}` : "0-0",
         p2Record: p2Standing ? `${p2Standing.wins}-${p2Standing.losses}` : "0-0",
         scheduledDate: m.scheduled_date,
+        quip: m.pre_match_quip ?? null,
+        winProbability: m.win_probability ?? null,
       };
     });
 
@@ -281,6 +286,8 @@ export async function generateDigestNarrative(data: DigestData): Promise<string>
       nextWeekMatches: data.upcomingMatches.map((m) => ({
         p1: `${m.p1Name} (#${m.p1Rank}, ${m.p1Record})`,
         p2: `${m.p2Name} (#${m.p2Rank}, ${m.p2Record})`,
+        odds: m.winProbability != null ? `${m.p1Name.split(" ")[0]} ${Math.round(m.winProbability * 100)}%` : undefined,
+        quip: m.quip ?? undefined,
       })),
       weekLabel: data.weekLabel,
       isLastWeeks: data.currentWeek >= data.totalWeeks - 1,
@@ -381,10 +388,36 @@ export function buildDigestEmailHtml(data: DigestData, narrative: string): strin
 
   // Upcoming matches
   const upcomingRows = data.upcomingMatches.map((m) => {
+    const probHtml = m.winProbability != null
+      ? (() => {
+          const p1Pct = Math.round(m.winProbability! * 100);
+          const p2Pct = 100 - p1Pct;
+          return `<div style="margin-top: 4px;">
+            <div style="display: flex; font-size: 10px; color: #94a3b8; margin-bottom: 2px;">
+              <span style="flex: 1;">${p1Pct}%</span>
+              <span style="text-align: right;">${p2Pct}%</span>
+            </div>
+            <div style="height: 4px; background: #e2e8f0; border-radius: 2px; overflow: hidden;">
+              <div style="height: 100%; width: ${p1Pct}%; background: #0ea5e9; border-radius: 2px;"></div>
+            </div>
+          </div>`;
+        })()
+      : "";
+    const quipHtml = m.quip
+      ? `<p style="margin: 4px 0 0 0; font-size: 12px; color: #64748b; font-style: italic;">${m.quip}</p>`
+      : "";
     return `<tr>
-      <td style="padding: 6px 10px; border-bottom: 1px solid #e2e8f0; color: #1e293b;">${m.p1Name} <span style="color: #94a3b8;">(#${m.p1Rank}, ${m.p1Record})</span></td>
-      <td style="padding: 6px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #94a3b8; font-weight: 700;">vs</td>
-      <td style="padding: 6px 10px; border-bottom: 1px solid #e2e8f0; color: #1e293b;">${m.p2Name} <span style="color: #94a3b8;">(#${m.p2Rank}, ${m.p2Record})</span></td>
+      <td colspan="3" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="color: #1e293b; font-weight: 600;">${m.p1Name}</span>
+          <span style="color: #94a3b8; font-size: 11px;">(#${m.p1Rank}, ${m.p1Record})</span>
+          <span style="color: #94a3b8; font-weight: 700; margin: 0 4px;">vs</span>
+          <span style="color: #1e293b; font-weight: 600;">${m.p2Name}</span>
+          <span style="color: #94a3b8; font-size: 11px;">(#${m.p2Rank}, ${m.p2Record})</span>
+        </div>
+        ${probHtml}
+        ${quipHtml}
+      </td>
     </tr>`;
   }).join("");
 
