@@ -1,6 +1,6 @@
 ---
 description: Cloudflare deployment and infrastructure details
-globs: wrangler.jsonc,src/lib/env.d.ts
+globs: wrangler.jsonc,src/lib/env.d.ts,tennisrecord-proxy/**
 alwaysApply: false
 ---
 
@@ -12,6 +12,8 @@ alwaysApply: false
 |--------|---------|---------|
 | `greenbrook-framers` | Main app (Next.js) | Custom domain `framers.app` |
 | `framers-cron` | Calls `/api/cron` | Cron: `0 17 * * *` (9 AM Pacific) |
+| `framers-email-router` | Inbound email forwarding | Email routing rules |
+| `tennisrecord-proxy` | Dev-only proxy for tennisrecord.com (bypasses local WiFi block) | HTTP (workers.dev) |
 
 ## Secrets (on `greenbrook-framers`)
 

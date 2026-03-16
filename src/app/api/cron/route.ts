@@ -277,6 +277,36 @@ export async function GET(request: NextRequest) {
         }))
       : [];
 
+    // Load scouting data for pre-match commentary
+    let preMatchScouting: Parameters<typeof generatePreMatchCommentary>[0]["scouting"];
+    try {
+      const { getCachedTeam, getHeadToHead, predictMatchOutcome } = await import("@/lib/tr-scouting");
+      const oppPlayers = await getCachedTeam(match.opponent_team);
+      if (oppPlayers.length > 0) {
+        const h2h = await getHeadToHead("GREENBROOK RS 40AM3.0A", match.opponent_team);
+        const prediction = predictMatchOutcome(
+          lineupForCommentary.map((l) => ({ position: l.position, playerName: l.name, trRating: null })),
+          oppPlayers.map((p) => ({ name: p.player_name, trRating: p.tr_rating, trDynamicRating: p.tr_dynamic_rating })),
+        );
+        preMatchScouting = {
+          players: oppPlayers.map((p) => ({
+            name: p.player_name,
+            rating: p.tr_dynamic_rating ?? p.tr_rating ?? 0,
+            record: p.season_record ?? "",
+            streak: p.current_streak,
+            avgOppRating: p.avg_opponent_rating,
+          })),
+          predictedScore: prediction.predictedResult,
+          headToHead: h2h.slice(0, 5).map((h) => ({
+            ourPlayer: h.ourPlayer, opponent: h.opponent,
+            result: h.result ?? "", score: h.score, date: h.date,
+          })),
+        };
+      }
+    } catch (e) {
+      console.error("[Pre-match scouting]", e);
+    }
+
     const preMatchNarrative = await generatePreMatchCommentary({
       teamName: match.team_name,
       opponentTeam: match.opponent_team,
@@ -287,6 +317,7 @@ export async function GET(request: NextRequest) {
       matchDate: match.match_date,
       lineup: lineupForCommentary,
       remainingMatches: remainingAfterThis,
+      scouting: preMatchScouting,
     });
 
     const narrativeHtml = preMatchNarrative
@@ -418,6 +449,66 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 5.5 TennisRecord scouting: quick-scout just-completed opponents + deep-scout upcoming
+  try {
+    const { quickScoutOpponent, scoutOpponent, scoutOwnTeam, isCacheFresh } = await import("@/lib/tr-scouting");
+
+    // Quick-scout any recently completed matches whose opponents aren't cached
+    const justCompletedOpponents = (await db.prepare(
+      `SELECT DISTINCT opponent_team FROM league_matches
+       WHERE status = 'completed' AND team_score IS NOT NULL
+       AND match_date >= ? AND opponent_team IS NOT NULL`
+    ).bind(new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10)).all<{ opponent_team: string }>()).results;
+
+    for (const opp of justCompletedOpponents) {
+      const fresh = await isCacheFresh(opp.opponent_team);
+      if (!fresh) {
+        await quickScoutOpponent(opp.opponent_team, now.getFullYear());
+        log.push(`[TR scout] Quick-scouted ${opp.opponent_team}`);
+      }
+    }
+
+    // Deep-scout one upcoming opponent (next 7 days) if not cached
+    const upcomingOpp = (await db.prepare(
+      `SELECT DISTINCT opponent_team FROM league_matches
+       WHERE status NOT IN ('completed','cancelled')
+       AND match_date BETWEEN ? AND ?
+       AND opponent_team IS NOT NULL
+       LIMIT 1`
+    ).bind(today, new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10)).all<{ opponent_team: string }>()).results;
+
+    for (const opp of upcomingOpp) {
+      const fresh = await isCacheFresh(opp.opponent_team);
+      if (!fresh) {
+        await scoutOpponent(opp.opponent_team, now.getFullYear());
+        log.push(`[TR scout] Deep-scouted upcoming opponent ${opp.opponent_team}`);
+      }
+    }
+
+    // Refresh own team ratings weekly
+    const ownTeamNames = (await db.prepare(
+      "SELECT name FROM teams WHERE status IN ('active','upcoming') AND usta_team_id IS NOT NULL"
+    ).all<{ name: string }>()).results;
+
+    // Map to TR team names via known mapping
+    const trNameMap: Record<string, string> = {
+      "Senior Framers 2026": "GREENBROOK RS 40AM3.0A",
+      "Junior Framers 2026": "GREENBROOK RS 18AM3.0A",
+    };
+
+    for (const t of ownTeamNames) {
+      const trName = trNameMap[t.name];
+      if (!trName) continue;
+      const fresh = await isCacheFresh(trName);
+      if (!fresh) {
+        await scoutOwnTeam(trName, now.getFullYear());
+        log.push(`[TR scout] Synced own team ${trName}`);
+      }
+    }
+  } catch (e) {
+    log.push(`[TR scout] error — ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   // 6. Post-match results emails for recently completed league matches (last 7 days only)
   const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
   const recentlyCompleted = (await db.prepare(
@@ -521,6 +612,31 @@ export async function GET(request: NextRequest) {
       "SELECT COUNT(*) as cnt FROM league_matches WHERE team_id = ? AND status NOT IN ('completed','cancelled') AND match_date > ?"
     ).bind(match.team_id, match.match_date).first<{ cnt: number }>())?.cnt ?? 0;
 
+    // Load scouting data for post-match commentary
+    let postMatchScouting: Parameters<typeof generatePostMatchCommentary>[0]["scouting"];
+    try {
+      const { getCachedTeam, getHeadToHead } = await import("@/lib/tr-scouting");
+      const oppPlayers = await getCachedTeam(match.opponent_team);
+      if (oppPlayers.length > 0) {
+        const h2h = await getHeadToHead("GREENBROOK RS 40AM3.0A", match.opponent_team);
+        postMatchScouting = {
+          players: oppPlayers.map((p) => ({
+            name: p.player_name,
+            rating: p.tr_dynamic_rating ?? p.tr_rating ?? 0,
+            record: p.season_record ?? "",
+            streak: p.current_streak,
+            avgOppRating: p.avg_opponent_rating,
+          })),
+          headToHead: h2h.slice(0, 5).map((h) => ({
+            ourPlayer: h.ourPlayer, opponent: h.opponent,
+            result: h.result ?? "", score: h.score, date: h.date,
+          })),
+        };
+      }
+    } catch (e) {
+      console.error("[Post-match scouting]", e);
+    }
+
     const postMatchNarrative = await generatePostMatchCommentary({
       teamName: match.team_name,
       opponentTeam: match.opponent_team,
@@ -538,6 +654,7 @@ export async function GET(request: NextRequest) {
         score: lr.our_score && lr.opp_score ? lr.our_score : "",
         isDefault: lr.is_default_win === 1,
       })),
+      scouting: postMatchScouting,
     });
 
     const postNarrativeHtml = postMatchNarrative

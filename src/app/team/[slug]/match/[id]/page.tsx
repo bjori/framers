@@ -8,6 +8,7 @@ import { MatchRsvp } from "@/components/match-rsvp";
 import { MatchDetailsEditor } from "@/components/match-details-editor";
 import { LineupAcknowledge } from "@/components/lineup-acknowledge";
 import { LineupChat } from "@/components/lineup-chat";
+import { OpponentScouting } from "@/components/opponent-scouting";
 import { Breadcrumb } from "@/components/breadcrumb";
 
 interface RsvpResponse {
@@ -290,6 +291,11 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
             ))}
           </div>
         </section>
+      )}
+
+      {/* Opponent Scouting */}
+      {match.opponent_team && (
+        <OpponentScouting opponentTeam={match.opponent_team} ourTeamSlug={slug} />
       )}
 
       {/* Lineup — unified view for captains (editor with view/edit toggle) */}
