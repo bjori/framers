@@ -9,6 +9,7 @@ interface PlayerRow {
   ntrp_type: string;
   singles_elo: number;
   doubles_elo: number;
+  tennisrecord_rating: number | null;
   teams: string;
 }
 
@@ -19,6 +20,7 @@ export default async function PlayersPage() {
     await db
       .prepare(
         `SELECT p.id, p.name, p.ntrp_type, p.singles_elo, p.doubles_elo,
+                p.tennisrecord_rating,
                 GROUP_CONCAT(DISTINCT t.name) as teams
          FROM players p
          JOIN team_memberships tm ON tm.player_id = p.id AND tm.active = 1

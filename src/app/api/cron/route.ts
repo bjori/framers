@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { checkAutoTransitions } from "@/lib/match-lifecycle";
-import { sendEmailBatch, emailTemplate } from "@/lib/email";
+import { sendEmailBatch, emailTemplate, matchThreadHeaders } from "@/lib/email";
 import { syncUstaTeam } from "@/lib/usta-sync";
 import { recalculateElo } from "@/lib/elo-recalc";
 import { gatherDigestData, generateDigestNarrative, buildDigestEmailHtml } from "@/lib/tournament-digest";
@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
 
       const batch = nonResponders.map((m) => ({
         to: m.email,
-        subject: `RSVP reminder: ${match.opponent_team} on ${dateStr}`,
+        subject: `RSVP reminder: ${match.team_name} vs ${match.opponent_team}`,
         html: emailTemplate(
           `<p>Hey ${m.name.split(" ")[0]},</p>
            <p>We still need your RSVP for <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
@@ -106,6 +106,7 @@ export async function GET(request: NextRequest) {
             ctaLabel: "RSVP Now",
           }
         ),
+        headers: matchThreadHeaders(match.id),
       }));
       await sendEmailBatch(batch);
 
@@ -236,7 +237,7 @@ export async function GET(request: NextRequest) {
     if (unconfirmedPlayers.length > 0) {
       const nudgeBatch = unconfirmedPlayers.map((p) => ({
         to: p.email,
-        subject: `Action needed: Confirm your spot for tomorrow — ${match.opponent_team}`,
+        subject: `Action needed: ${match.team_name} vs ${match.opponent_team}`,
         html: emailTemplate(
           `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #dc2626;">Hey ${p.name.split(" ")[0]}, you haven't confirmed!</h2>
            <p>You're in the lineup at <strong>${POSITION_LABELS[p.position] || p.position}</strong> for tomorrow's match against <strong>${match.opponent_team}</strong>, but you haven't confirmed yet.</p>
@@ -244,6 +245,7 @@ export async function GET(request: NextRequest) {
            ${logisticsHtml}`,
           { heading: "Confirmation Needed", ctaUrl: matchUrl, ctaLabel: "Confirm I'll Be There", secondaryCtaUrl: matchUrl, secondaryCtaLabel: "Can't Make It" }
         ),
+        headers: matchThreadHeaders(match.id),
       }));
       await sendEmailBatch(nudgeBatch);
       log.push(`[Unconfirmed nudge] ${match.opponent_team}: sent to ${unconfirmedPlayers.length} unconfirmed players`);
@@ -254,13 +256,14 @@ export async function GET(request: NextRequest) {
         .filter((m) => !unconfirmedPlayers.some((u) => u.email === m.email))
         .map((m) => ({
           to: m.email,
-          subject: `Missing confirmations for tomorrow: ${match.opponent_team}`,
+          subject: `Missing confirmations: ${match.team_name} vs ${match.opponent_team}`,
           html: emailTemplate(
             `<p>Heads up — we're still waiting on confirmation from <strong>${unconfNames}</strong> for tomorrow's match against <strong>${match.opponent_team}</strong>.</p>
              <p>If you're available as a backup, let the captain know!</p>
              ${logisticsHtml}`,
             { heading: "Confirmation Alert", ctaUrl: matchUrl, ctaLabel: "View Match" }
           ),
+          headers: matchThreadHeaders(match.id),
         }));
       await sendEmailBatch(alertBatch);
       log.push(`[Confirmation alert] ${match.opponent_team}: sent to ${alertBatch.length} team members`);
@@ -325,7 +328,7 @@ export async function GET(request: NextRequest) {
       : "";
 
     // Send good luck email to everyone
-    const subjectPrefix = isFinalMatch ? "Season finale tomorrow" : "Good luck tomorrow";
+    const subjectPrefix = isFinalMatch ? "Season finale" : "Good luck tomorrow";
     const goodLuckBatch = teamMembers.map((m) => ({
       to: m.email,
       subject: `${subjectPrefix}: ${match.team_name} vs ${match.opponent_team}`,
@@ -340,6 +343,7 @@ export async function GET(request: NextRequest) {
          <p style="margin-top: 16px; font-size: 15px; font-weight: 600; color: #0c4a6e;">Let's go Framers!</p>`,
         { heading: isFinalMatch ? "Season Finale" : "Match Day", ctaUrl: matchUrl, ctaLabel: "View Match Details" }
       ),
+      headers: matchThreadHeaders(match.id),
     }));
     await sendEmailBatch(goodLuckBatch);
 
@@ -616,11 +620,8 @@ export async function GET(request: NextRequest) {
       </table>`;
 
     const matchUrl = `https://framers.app/team/${match.team_slug}/match/${match.id}`;
-    const subject = `Re: Lineup locked: ${match.team_name} vs ${match.opponent_team} — ${dateStr}`;
-    const threadHeaders = {
-      "In-Reply-To": `<lineup-confirmed-${match.id}@framers.app>`,
-      "References": `<lineup-confirmed-${match.id}@framers.app>`,
-    };
+    const subject = `Results: ${match.team_name} vs ${match.opponent_team}`;
+    const threadHeaders = matchThreadHeaders(match.id);
 
     // Season context for commentary
     const postSeasonRecord = await db.prepare(

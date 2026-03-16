@@ -9,10 +9,11 @@ interface Player {
   ntrp_type: string;
   singles_elo: number;
   doubles_elo: number;
+  tennisrecord_rating: number | null;
   teams: string;
 }
 
-type SortKey = "name" | "singles_elo" | "doubles_elo" | "ntrp";
+type SortKey = "name" | "singles_elo" | "doubles_elo" | "ntrp" | "tr_rating";
 type SortDir = "asc" | "desc";
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
@@ -20,6 +21,7 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "singles_elo", label: "Singles ELO" },
   { key: "doubles_elo", label: "Doubles ELO" },
   { key: "ntrp", label: "NTRP" },
+  { key: "tr_rating", label: "TR Rating" },
 ];
 
 function parseNtrp(ntrpType: string): number {
@@ -52,6 +54,7 @@ export function PlayerDirectory({ players }: { players: Player[] }) {
       case "singles_elo": cmp = a.singles_elo - b.singles_elo; break;
       case "doubles_elo": cmp = a.doubles_elo - b.doubles_elo; break;
       case "ntrp": cmp = parseNtrp(a.ntrp_type) - parseNtrp(b.ntrp_type); break;
+      case "tr_rating": cmp = (a.tennisrecord_rating ?? 0) - (b.tennisrecord_rating ?? 0); break;
     }
     return sortDir === "asc" ? cmp : -cmp;
   });
@@ -96,6 +99,7 @@ export function PlayerDirectory({ players }: { players: Player[] }) {
                 <th className="text-center py-2.5 px-3 font-semibold">NTRP</th>
                 <th className="text-center py-2.5 px-3 font-semibold">S-ELO</th>
                 <th className="text-center py-2.5 px-3 font-semibold">D-ELO</th>
+                <th className="text-center py-2.5 px-3 font-semibold">TR</th>
               </tr>
             </thead>
             <tbody>
@@ -125,11 +129,12 @@ export function PlayerDirectory({ players }: { players: Player[] }) {
                   <td className="py-2.5 px-3 text-center text-xs">{p.ntrp_type}</td>
                   <td className="py-2.5 px-3 text-center text-xs font-semibold">{p.singles_elo}</td>
                   <td className="py-2.5 px-3 text-center text-xs font-semibold">{p.doubles_elo}</td>
+                  <td className="py-2.5 px-3 text-center text-xs font-mono text-slate-500">{p.tennisrecord_rating != null ? p.tennisrecord_rating.toFixed(2) : "—"}</td>
                 </tr>
               ))}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-sm text-slate-400">
+                  <td colSpan={6} className="py-8 text-center text-sm text-slate-400">
                     No players found
                   </td>
                 </tr>

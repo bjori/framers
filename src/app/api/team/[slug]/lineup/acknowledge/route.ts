@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { sendEmail, sendEmailBatch, emailTemplate } from "@/lib/email";
+import { sendEmail, sendEmailBatch, emailTemplate, matchThreadHeaders } from "@/lib/email";
 import { track } from "@/lib/analytics";
 
 const POSITION_LABELS: Record<string, string> = {
@@ -183,8 +183,7 @@ async function sendLineupLockedEmail(
     ${altHtml}`;
 
   const matchUrl = `https://framers.app/team/${slug}/match/${matchId}`;
-  const subject = `Lineup locked: ${team.name} vs ${matchInfo.opponent_team} — ${dateStr}`;
-  const messageId = `<lineup-confirmed-${matchId}@framers.app>`;
+  const subject = `Lineup locked: ${team.name} vs ${matchInfo.opponent_team}`;
 
   const teamMembers = (await db.prepare(
     `SELECT p.id, p.email, p.name FROM team_memberships tm
@@ -203,7 +202,7 @@ async function sendLineupLockedEmail(
        ${lineupTableHtml}`,
       { heading: "Lineup Locked", ctaUrl: matchUrl, ctaLabel: "View Match" }
     ),
-    headers: { "Message-ID": messageId },
+    headers: matchThreadHeaders(matchId),
   }));
 
   await sendEmailBatch(batch);

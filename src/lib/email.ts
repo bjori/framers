@@ -1,12 +1,28 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { track } from "@/lib/analytics";
 
-interface SendEmailOptions {
+export interface SendEmailOptions {
   to: string;
   subject: string;
   html: string;
   from?: string;
   headers?: Record<string, string>;
+}
+
+/**
+ * Generate email threading headers for match-related emails.
+ * All emails about the same match share a thread via References/In-Reply-To.
+ * The first email for a match should use `isFirst: true` to set Message-ID.
+ */
+export function matchThreadHeaders(matchId: string, opts?: { isFirst?: boolean }): Record<string, string> {
+  const canonical = `<match-${matchId}@framers.app>`;
+  if (opts?.isFirst) {
+    return { "Message-ID": canonical };
+  }
+  return {
+    "References": canonical,
+    "In-Reply-To": canonical,
+  };
 }
 
 /**

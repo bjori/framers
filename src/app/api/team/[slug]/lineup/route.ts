@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { optimizeLineup, type AvailablePlayer } from "@/lib/lineup-optimizer";
-import { sendEmailBatch, emailTemplate } from "@/lib/email";
+import { sendEmailBatch, emailTemplate, matchThreadHeaders } from "@/lib/email";
 import { transitionMatch } from "@/lib/match-lifecycle";
 import { track } from "@/lib/analytics";
 
@@ -199,11 +199,14 @@ export async function POST(
           const addedSet = new Set(addedIds);
           const removedSet = new Set(removedIds);
 
+          const teamName = (await db.prepare("SELECT name FROM teams WHERE id = ?").bind(team.id).first<{ name: string }>())?.name ?? "";
+          const threadHdrs = matchThreadHeaders(body.matchId, { isFirst: !isReconfirm });
+
           const batch = players.map((p) => {
             if (removedSet.has(p.id)) {
               return {
                 to: p.email,
-                subject: `Lineup update: ${matchInfo!.opponent_team} on ${dateStr}`,
+                subject: `Lineup update: ${teamName} vs ${matchInfo!.opponent_team}`,
                 html: emailTemplate(
                   `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Lineup change, ${p.name.split(" ")[0]}</h2>
                    <p>You've been <strong>removed from the lineup</strong> for <strong>${matchInfo!.opponent_team}</strong> (${matchInfo!.is_home ? "Home" : "Away"}) on ${dateStr}.</p>
@@ -211,12 +214,13 @@ export async function POST(
                    <p style="color: #64748b;">If you think this is a mistake, reach out to the captain.</p>`,
                   { heading: "Lineup Updated", ctaUrl: matchUrl, ctaLabel: "View Match" }
                 ),
+                headers: threadHdrs,
               };
             }
             const myPositions = body.slots!.filter((s) => s.playerId === p.id).map((s) => s.position).join(", ");
             return {
               to: p.email,
-              subject: `${isReconfirm && addedSet.has(p.id) ? "You've been added: " : "Lineup confirmed: "}${matchInfo!.opponent_team} on ${dateStr}`,
+              subject: `${isReconfirm && addedSet.has(p.id) ? "You've been added: " : "Lineup confirmed: "}${teamName} vs ${matchInfo!.opponent_team}`,
               html: emailTemplate(
                 `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">You're playing, ${p.name.split(" ")[0]}!</h2>
                  <p>The lineup for <strong>${matchInfo!.opponent_team}</strong> (${matchInfo!.is_home ? "Home" : "Away"}) has been ${isReconfirm ? "updated" : "confirmed"}.</p>
@@ -229,6 +233,7 @@ export async function POST(
                  <p style="margin-top: 20px; font-size: 14px; font-weight: 600; color: #0c4a6e;">Please confirm you can make it:</p>`,
                 { heading: isReconfirm ? "Lineup Updated" : "Lineup Confirmed", ctaUrl: matchUrl, ctaLabel: "Confirm I'll Be There", secondaryCtaUrl: matchUrl, secondaryCtaLabel: "Shit Happened, Can't Make It" }
               ),
+              headers: threadHdrs,
             };
           });
           await sendEmailBatch(batch);
