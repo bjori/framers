@@ -6,7 +6,30 @@ export interface SendEmailOptions {
   subject: string;
   html: string;
   from?: string;
+  replyTo?: string;
   headers?: Record<string, string>;
+}
+
+/**
+ * Map team/tournament slugs to their distribution list addresses.
+ * Replies to emails sent with these addresses go to the whole group.
+ */
+const LIST_ADDRESSES: Record<string, string> = {
+  "senior-framers-2026": "seniors@framers.app",
+  "junior-framers-2026": "juniors@framers.app",
+  "singles-championship-2026": "singles@framers.app",
+};
+
+/**
+ * Get the from name + reply-to for a team or tournament context.
+ * Returns { from: "Senior Framers <captain@framers.app>", replyTo: "seniors@framers.app" }
+ */
+export function listSender(slug: string, displayName: string): { from: string; replyTo: string } {
+  const listAddr = LIST_ADDRESSES[slug];
+  return {
+    from: `${displayName} <captain@framers.app>`,
+    replyTo: listAddr ?? "captain@framers.app",
+  };
 }
 
 /**
@@ -87,7 +110,7 @@ export function emailTemplate(content: string, options?: {
 </html>`;
 }
 
-export async function sendEmail({ to, subject, html, from, headers: customHeaders }: SendEmailOptions): Promise<boolean> {
+export async function sendEmail({ to, subject, html, from, replyTo, headers: customHeaders }: SendEmailOptions): Promise<boolean> {
   const { env } = await getCloudflareContext({ async: true });
   const resendKey = env.RESEND_API_KEY;
 
@@ -103,6 +126,7 @@ export async function sendEmail({ to, subject, html, from, headers: customHeader
     html,
     tracking: { open: true, click: true },
   };
+  if (replyTo) payload.reply_to = replyTo;
   if (customHeaders && Object.keys(customHeaders).length > 0) {
     payload.headers = customHeaders;
   }
@@ -154,6 +178,7 @@ export async function sendEmailBatch(
       html: e.html,
       tracking: { open: true, click: true },
     };
+    if (e.replyTo) item.reply_to = e.replyTo;
     if (e.headers && Object.keys(e.headers).length > 0) {
       item.headers = e.headers;
     }

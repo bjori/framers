@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { optimizeLineup, type AvailablePlayer } from "@/lib/lineup-optimizer";
-import { sendEmailBatch, emailTemplate, matchThreadHeaders } from "@/lib/email";
+import { sendEmailBatch, emailTemplate, matchThreadHeaders, listSender } from "@/lib/email";
 import { transitionMatch } from "@/lib/match-lifecycle";
 import { track } from "@/lib/analytics";
 
@@ -201,12 +201,14 @@ export async function POST(
 
           const teamName = (await db.prepare("SELECT name FROM teams WHERE id = ?").bind(team.id).first<{ name: string }>())?.name ?? "";
           const threadHdrs = matchThreadHeaders(body.matchId, { isFirst: !isReconfirm });
+          const senderInfo = listSender(slug, teamName);
 
           const batch = players.map((p) => {
             if (removedSet.has(p.id)) {
               return {
                 to: p.email,
                 subject: `Lineup update: ${teamName} vs ${matchInfo!.opponent_team}`,
+                ...senderInfo,
                 html: emailTemplate(
                   `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Lineup change, ${p.name.split(" ")[0]}</h2>
                    <p>You've been <strong>removed from the lineup</strong> for <strong>${matchInfo!.opponent_team}</strong> (${matchInfo!.is_home ? "Home" : "Away"}) on ${dateStr}.</p>
@@ -221,6 +223,7 @@ export async function POST(
             return {
               to: p.email,
               subject: `${isReconfirm && addedSet.has(p.id) ? "You've been added: " : "Lineup confirmed: "}${teamName} vs ${matchInfo!.opponent_team}`,
+              ...senderInfo,
               html: emailTemplate(
                 `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">You're playing, ${p.name.split(" ")[0]}!</h2>
                  <p>The lineup for <strong>${matchInfo!.opponent_team}</strong> (${matchInfo!.is_home ? "Home" : "Away"}) has been ${isReconfirm ? "updated" : "confirmed"}.</p>

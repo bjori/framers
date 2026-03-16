@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { sendEmail, sendEmailBatch, emailTemplate, matchThreadHeaders } from "@/lib/email";
+import { sendEmail, sendEmailBatch, emailTemplate, matchThreadHeaders, listSender } from "@/lib/email";
 import { track } from "@/lib/analytics";
 
 const POSITION_LABELS: Record<string, string> = {
@@ -183,6 +183,7 @@ async function sendLineupLockedEmail(
     ${altHtml}`;
 
   const matchUrl = `https://framers.app/team/${slug}/match/${matchId}`;
+  const lockedSender = listSender(slug, team.name);
   const subject = `Lineup locked: ${team.name} vs ${matchInfo.opponent_team}`;
 
   const teamMembers = (await db.prepare(
@@ -194,6 +195,7 @@ async function sendLineupLockedEmail(
   const batch = teamMembers.map((m) => ({
     to: m.email,
     subject,
+    ...lockedSender,
     html: emailTemplate(
       `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Lineup locked, ${m.name.split(" ")[0]}!</h2>
        <p>All players have confirmed for <strong>${matchInfo.opponent_team}</strong> (${matchInfo.is_home ? "Home" : "Away"}).</p>
