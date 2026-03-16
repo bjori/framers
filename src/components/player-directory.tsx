@@ -129,7 +129,18 @@ export function PlayerDirectory({ players }: { players: Player[] }) {
                   <td className="py-2.5 px-3 text-center text-xs">{p.ntrp_type}</td>
                   <td className="py-2.5 px-3 text-center text-xs font-semibold">{p.singles_elo}</td>
                   <td className="py-2.5 px-3 text-center text-xs font-semibold">{p.doubles_elo}</td>
-                  <td className="py-2.5 px-3 text-center text-xs font-mono text-slate-500">{p.tennisrecord_rating != null ? p.tennisrecord_rating.toFixed(2) : "—"}</td>
+                  <td className="py-2.5 px-3 text-center text-xs font-mono text-slate-500">
+                    {p.tennisrecord_rating != null ? (
+                      <a
+                        href={`https://www.tennisrecord.com/adult/profile.aspx?playername=${encodeURIComponent(p.name)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sky-700 dark:text-sky-400 hover:underline"
+                      >
+                        {p.tennisrecord_rating.toFixed(2)}
+                      </a>
+                    ) : "—"}
+                  </td>
                 </tr>
               ))}
               {sorted.length === 0 && (

@@ -158,9 +158,14 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
           NTRP {player.ntrp_type}
           {player.tennisrecord_rating != null && (
-            <span className="ml-2 text-xs font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+            <a
+              href={`https://www.tennisrecord.com/adult/profile.aspx?playername=${encodeURIComponent(player.name)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-2 text-xs font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-sky-700 dark:text-sky-400 hover:underline"
+            >
               TR {player.tennisrecord_rating.toFixed(2)}
-            </span>
+            </a>
           )}
           {player.is_admin ? " · Admin" : ""}
         </p>
