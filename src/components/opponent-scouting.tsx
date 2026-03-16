@@ -124,8 +124,19 @@ export function OpponentScouting({ opponentTeam, ourTeamSlug }: { opponentTeam: 
                       {rating?.toFixed(2) ?? "—"}
                     </td>
                     <td className="px-3 py-2.5 text-center text-xs">
-                      {p.season_record ?? "—"}
-                      {p.win_pct != null && <span className="text-slate-400 ml-1">({p.win_pct}%)</span>}
+                      {(() => {
+                        const record = p.season_record ?? "—";
+                        const m = record.match(/^(\d+)-(\d+)$/);
+                        const totalGames = m ? parseInt(m[1]) + parseInt(m[2]) : 0;
+                        return (
+                          <>
+                            {record}
+                            {p.win_pct != null && totalGames > 0 && (
+                              <span className="text-slate-400 ml-1">({p.win_pct}%)</span>
+                            )}
+                          </>
+                        );
+                      })()}
                     </td>
                     <td className="px-3 py-2.5 text-center">
                       {p.current_streak ? (

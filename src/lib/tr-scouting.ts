@@ -79,6 +79,11 @@ async function persistScoutingData(scouting: TRTeamScouting): Promise<void> {
   for (const player of scouting.roster) {
     const id = `${scouting.teamName}::${player.name}`;
 
+    // Prefer the stats-page record (overall for the year) over the team-page
+    // record so that season_record and win_pct come from the same data source.
+    const statsWL = player.stats?.record?.match(/^(\d+-\d+)/)?.[1];
+    const seasonRecord = statsWL ?? player.seasonRecord;
+
     await db
       .prepare(
         `INSERT INTO tr_players (id, player_name, team_name, ntrp, tr_rating, tr_dynamic_rating,
@@ -102,7 +107,7 @@ async function persistScoutingData(scouting: TRTeamScouting): Promise<void> {
         player.ntrp,
         player.rating,
         player.profile?.dynamicRating ?? null,
-        player.seasonRecord,
+        seasonRecord,
         player.localSingles,
         player.localDoubles,
         player.localRecord,
