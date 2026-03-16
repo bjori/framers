@@ -145,34 +145,37 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
   let scheduleCreated = 0;
   let scheduleUpdated = 0;
   for (const sm of scheduleMatches) {
-    const existing = await db.prepare(
-      "SELECT id, opponent_team, is_home FROM league_matches WHERE team_id = ? AND match_date = ? AND round_number = ?"
-    ).bind(team.id, sm.matchDate, sm.roundNumber).first<{ id: string; opponent_team: string; is_home: number }>();
+    // Try exact match on date + opponent first (handles double-headers on same date)
+    const byOpponent = await db.prepare(
+      "SELECT id, round_number, is_home FROM league_matches WHERE team_id = ? AND match_date = ? AND opponent_team = ?"
+    ).bind(team.id, sm.matchDate, sm.opponentTeam).first<{ id: string; round_number: number; is_home: number }>();
 
-    if (existing) {
-      if (existing.opponent_team !== sm.opponentTeam || existing.is_home !== (sm.isHome ? 1 : 0)) {
+    if (byOpponent) {
+      if (byOpponent.round_number !== sm.roundNumber || byOpponent.is_home !== (sm.isHome ? 1 : 0)) {
         await db.prepare(
-          "UPDATE league_matches SET opponent_team = ?, is_home = ? WHERE id = ?"
-        ).bind(sm.opponentTeam, sm.isHome ? 1 : 0, existing.id).run();
+          "UPDATE league_matches SET round_number = ?, is_home = ? WHERE id = ?"
+        ).bind(sm.roundNumber, sm.isHome ? 1 : 0, byOpponent.id).run();
         scheduleUpdated++;
       }
+      continue;
+    }
+
+    // Fallback: single match on this date with no opponent yet, or same round + no double-header
+    const allOnDate = (await db.prepare(
+      "SELECT id, opponent_team, round_number FROM league_matches WHERE team_id = ? AND match_date = ?"
+    ).bind(team.id, sm.matchDate).all<{ id: string; opponent_team: string; round_number: number }>()).results;
+
+    if (allOnDate.length === 1 && !allOnDate[0].opponent_team) {
+      // Unmatched placeholder — update it
+      await db.prepare(
+        "UPDATE league_matches SET opponent_team = ?, is_home = ?, round_number = ? WHERE id = ?"
+      ).bind(sm.opponentTeam, sm.isHome ? 1 : 0, sm.roundNumber, allOnDate[0].id).run();
+      scheduleUpdated++;
     } else {
-      // Also check by date only (no round) in case round changed
-      const byDate = await db.prepare(
-        "SELECT id FROM league_matches WHERE team_id = ? AND match_date = ?"
-      ).bind(team.id, sm.matchDate).first<{ id: string }>();
-
-      if (byDate) {
-        await db.prepare(
-          "UPDATE league_matches SET opponent_team = ?, is_home = ?, round_number = ? WHERE id = ?"
-        ).bind(sm.opponentTeam, sm.isHome ? 1 : 0, sm.roundNumber, byDate.id).run();
-        scheduleUpdated++;
-      } else {
-        await db.prepare(
-          "INSERT INTO league_matches (id, team_id, round_number, opponent_team, match_date, is_home, status) VALUES (?, ?, ?, ?, ?, ?, 'open')"
-        ).bind(crypto.randomUUID(), team.id, sm.roundNumber, sm.opponentTeam, sm.matchDate, sm.isHome ? 1 : 0).run();
-        scheduleCreated++;
-      }
+      await db.prepare(
+        "INSERT INTO league_matches (id, team_id, round_number, opponent_team, match_date, is_home, status) VALUES (?, ?, ?, ?, ?, ?, 'open')"
+      ).bind(crypto.randomUUID(), team.id, sm.roundNumber, sm.opponentTeam, sm.matchDate, sm.isHome ? 1 : 0).run();
+      scheduleCreated++;
     }
   }
 

@@ -688,6 +688,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, log });
     }
 
+    if (body.action === "sync-team") {
+      const { syncUstaTeam } = await import("@/lib/usta-sync");
+      const slug = (body as { teamSlug?: string }).teamSlug ?? "junior-framers-2026";
+      const result = await syncUstaTeam(db, slug);
+      return NextResponse.json({ ok: true, ...result });
+    }
+
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
