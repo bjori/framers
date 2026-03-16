@@ -20,8 +20,24 @@ alwaysApply: false
 - `RESEND_API_KEY` — Resend email API key
 - `RESEND_WEBHOOK_SECRET` — Svix signing secret for webhook verification
 - `CRON_SECRET` — shared secret between cron worker and `/api/cron` endpoint
+- `OPENAI_API_KEY` — GPT-4o-mini for AI commentary, player form summaries, match predictions
 
 `CRON_SECRET` is also set on `framers-cron` worker.
+
+## Git Push
+
+Always push using the private GitHub SSH key:
+
+```bash
+GIT_SSH_COMMAND="ssh -i ~/.ssh/id_ed25519-private-github -o IdentitiesOnly=yes" git push
+```
+
+## Network Quirks
+
+- Local WiFi (Zscaler) blocks `tennisrecord.com` and some `*.workers.dev` URLs
+- Use `curl -sk` to bypass SSL issues when hitting workers.dev from local machine
+- The `tennisrecord-proxy` worker exists for dev-only access to tennisrecord.com
+- Production app on Cloudflare Workers fetches tennisrecord.com directly (no proxy needed)
 
 ## Bindings (in `wrangler.jsonc`)
 
@@ -43,8 +59,21 @@ npx wrangler deploy .open-next/worker.js # deploy (reads wrangler.jsonc)
 
 Never use `--name` flag — it ignores `wrangler.jsonc` and creates a new worker without secrets.
 
+After deploying schema changes, run migrations via:
+```bash
+curl -sk "https://greenbrook-framers.hannes-magnusson.workers.dev/api/setup"
+```
+
 ## D1 Queries from CLI
 
 ```bash
 npx wrangler d1 execute framers-v2 --remote --command "SELECT ..."
 ```
+Note: D1 CLI may fail with auth errors from local machine. Use `/api/setup` endpoint or `/api/debug` actions instead.
+
+## Worker Execution Limits
+
+Cloudflare Workers have a ~30s CPU time limit. For long operations (e.g. bulk scraping, backfill):
+- Process one item at a time via repeated API calls
+- Use the `/api/debug` endpoint with single-item actions
+- Never try to loop through many external fetches in a single request

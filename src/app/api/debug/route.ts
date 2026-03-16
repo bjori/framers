@@ -598,6 +598,64 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (body.action === "generate-forms-and-quips") {
+      const tournamentSlug = (body as { tournamentSlug?: string }).tournamentSlug ?? "singles-championship-2026";
+      const tournament = await db.prepare("SELECT id FROM tournaments WHERE slug = ?").bind(tournamentSlug).first<{ id: string }>();
+      if (!tournament) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
+
+      const log: string[] = [];
+
+      // Generate tournament form for all participants
+      const { generateTournamentForm, generateLeagueForm } = await import("@/lib/player-form");
+      const participants = (await db.prepare(
+        "SELECT DISTINCT tp.player_id FROM tournament_participants tp WHERE tp.tournament_id = ?"
+      ).bind(tournament.id).all<{ player_id: string }>()).results;
+
+      for (const p of participants) {
+        try {
+          const form = await generateTournamentForm(p.player_id);
+          if (form) log.push(`[Form] ${p.player_id}: ${form}`);
+          else log.push(`[Form] ${p.player_id}: skipped (no matches)`);
+        } catch (e) {
+          log.push(`[Form] ${p.player_id}: error — ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      // Generate league form for players on active teams
+      const leaguePlayers = (await db.prepare(
+        `SELECT DISTINCT lmr.player1_id, lmr.player2_id
+         FROM league_match_results lmr
+         JOIN league_matches lm ON lm.id = lmr.match_id
+         WHERE lm.status = 'completed'`
+      ).all<{ player1_id: string | null; player2_id: string | null }>()).results;
+
+      const leaguePlayerIds = new Set<string>();
+      for (const r of leaguePlayers) {
+        if (r.player1_id) leaguePlayerIds.add(r.player1_id);
+        if (r.player2_id) leaguePlayerIds.add(r.player2_id);
+      }
+
+      for (const pid of leaguePlayerIds) {
+        try {
+          const form = await generateLeagueForm(pid);
+          if (form) log.push(`[LeagueForm] ${pid}: ${form}`);
+        } catch (e) {
+          log.push(`[LeagueForm] ${pid}: error — ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      // Regenerate all match quips
+      const { regenerateAllQuips } = await import("@/lib/match-predictions");
+      try {
+        const count = await regenerateAllQuips(tournament.id);
+        log.push(`[Quips] Regenerated ${count} match predictions`);
+      } catch (e) {
+        log.push(`[Quips] error — ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      return NextResponse.json({ ok: true, log });
+    }
+
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

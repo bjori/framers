@@ -15,6 +15,8 @@ Manages USTA league teams, internal tournaments, practices, ELO ratings, and pay
 - **Database**: Cloudflare D1 (SQLite) — database name `framers-v2`
 - **Cache/Sessions**: Cloudflare KV
 - **Email**: Resend API (sender: `captain@framers.app`, BCC all to `hannes.magnusson@gmail.com`)
+- **AI**: OpenAI GPT-4o-mini for commentary, player form summaries, match predictions (~$0.05/week)
+- **Scouting**: TennisRecord.com scraping for opponent ratings, records, head-to-head data
 - **Cron**: Separate `framers-cron` Cloudflare Worker triggers `/api/cron` daily at 9 AM Pacific
 - **Domain**: `framers.app` — Cloudflare DNS + custom domain on worker
 
@@ -33,6 +35,7 @@ Secrets are managed via `npx wrangler secret put SECRET_NAME --name greenbrook-f
 - **Auth**: `getSession()` from `@/lib/auth` returns `{ player_id, name, email, is_admin, ... } | null`
 - **Emails**: Use `sendEmailBatch()` for bulk, `sendEmail()` for single. Always wrap content in `emailTemplate()`
 - **Analytics**: `track(event, { detail })` from `@/lib/analytics` — fire-and-forget, never throws
+- **AI calls**: Use `callGpt()` helper pattern (see `league-commentary.ts`, `player-form.ts`). Always GPT-4o-mini, fire-and-forget where possible
 - **Cron dedup**: Use `app_events` table to prevent duplicate notifications (check before sending)
 - **Admin**: Hannes Magnusson is primary admin. Matt McCabe is co-captain for both Senior Framers and Junior Framers teams
 - **Impersonation**: Admins can view-as-user via `framers_impersonate` cookie

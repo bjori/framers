@@ -39,6 +39,26 @@ Always wrap HTML in `emailTemplate(content, { heading, ctaUrl, ctaLabel })`.
 
 Next.js 15 async params: `{ params }: { params: Promise<{ slug: string }> }` then `const { slug } = await params;`
 
+## Fire-and-Forget Pattern
+
+For AI generation and background work that shouldn't block the user response:
+
+```typescript
+// Don't await — let it run after response is sent
+(async () => {
+  try {
+    const { generateTournamentForm } = await import("@/lib/player-form");
+    await generateTournamentForm(playerId);
+  } catch (e) {
+    console.error("[Form generation]", e);
+  }
+})();
+
+return NextResponse.json({ ok: true });
+```
+
+Use dynamic `import()` inside the IIFE to avoid loading AI libraries unless needed.
+
 ## Error Handling
 
 API routes should return JSON with `{ error: string }` for errors, `{ ok: true, ... }` for success.

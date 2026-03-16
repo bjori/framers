@@ -42,6 +42,33 @@ alwaysApply: true
 `src/lib/elo.ts` — separate singles/doubles ratings, K-factor adjusted.
 Batch recalculate via `/api/admin/elo/recalculate`. Updated live on score submission.
 
+## TennisRecord Integration
+
+`src/lib/tennisrecord.ts` — scrapes tennisrecord.com for player ratings, stats, match history.
+`src/lib/tr-scouting.ts` — caching/persistence layer with 7-day staleness check.
+
+- Production app fetches tennisrecord.com directly (no proxy needed)
+- `tennisrecord-proxy` worker is dev-only (local WiFi blocks the site)
+- Deep scout: team page → each player's profile + stats + match history (3 concurrent players)
+- Data cached in `tr_players` and `tr_match_history` tables
+- Own team's TR ratings synced to `players.tennisrecord_rating`
+- Managed via `/admin/scouting` page or `/api/debug` `tr-backfill` action
+- Cron auto-scouts: quick-scout completed opponents, deep-scout one upcoming opponent, refresh own team weekly
+
+## AI Features
+
+All use GPT-4o-mini. Cost: well under $1/month total.
+
+| Feature | Library | Trigger | Est. Cost |
+|---------|---------|---------|-----------|
+| Pre-match hype email | `league-commentary.ts` | Cron (day before match) | ~$0.002/email |
+| Post-match recap email | `league-commentary.ts` | Cron (after scores synced) | ~$0.002/email |
+| Player form summaries | `player-form.ts` | Score submission + cron | ~$0.0003/call |
+| Match predictions/quips | `match-predictions.ts` | Score submission + weekly digest | ~$0.008/full regen |
+| Weekly digest narrative | `tournament-digest.ts` | Cron (Sundays) | ~$0.003/digest |
+
+Pattern: each module has its own `callGpt()` helper that reads `OPENAI_API_KEY` from CloudflareEnv. Always fire-and-forget (don't block user-facing responses).
+
 ## Match Lifecycle (League)
 
 `open` → `needs_players` → `rsvp_closed` → `lineup_draft` → `lineup_confirmed` → `locked` → `completed`
