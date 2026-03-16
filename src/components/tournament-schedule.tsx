@@ -66,7 +66,7 @@ function ProbabilityBadge({ prob, p1Name }: { prob: number; p1Name: string }) {
 }
 
 export function TournamentSchedule({ matches, slug }: { matches: TournamentMatch[]; slug: string }) {
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>("upcoming");
 
   const filtered = matches.filter((m) => {
     if (m.bye) return false;
