@@ -151,6 +151,46 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
     .slice(0, 5)
     .reduce((sum, e) => sum + e.delta, 0);
 
+  // Next upcoming tournament match
+  const nextTourneyMatch = await db.prepare(
+    `SELECT tm.id, tm.scheduled_date, tm.week, tm.pre_match_quip, tm.win_probability,
+            t.name as tournament_name, t.slug as tournament_slug,
+            tm.participant1_id, my_tp.id as my_tp_id,
+            opp_p.name as opponent_name, opp_p.id as opponent_id
+     FROM tournament_matches tm
+     JOIN tournaments t ON t.id = tm.tournament_id
+     JOIN tournament_participants my_tp ON my_tp.player_id = ? AND my_tp.id IN (tm.participant1_id, tm.participant2_id)
+     LEFT JOIN tournament_participants opp_tp ON opp_tp.id = CASE
+       WHEN my_tp.id = tm.participant1_id THEN tm.participant2_id ELSE tm.participant1_id END
+     LEFT JOIN players opp_p ON opp_p.id = opp_tp.player_id
+     WHERE tm.status = 'scheduled' AND tm.bye = 0
+     ORDER BY tm.scheduled_date ASC
+     LIMIT 1`
+  ).bind(id).first<{
+    id: string; scheduled_date: string; week: number;
+    pre_match_quip: string | null; win_probability: number | null;
+    tournament_name: string; tournament_slug: string;
+    participant1_id: string; my_tp_id: string;
+    opponent_name: string | null; opponent_id: string | null;
+  }>();
+
+  // Next upcoming league match
+  const nextLeagueMatch = await db.prepare(
+    `SELECT lm.id, lm.match_date, lm.opponent_team, lm.match_time, lm.location, lm.is_home,
+            t.name as team_name, t.slug as team_slug
+     FROM league_matches lm
+     JOIN teams t ON t.id = lm.team_id
+     JOIN team_memberships tm ON tm.team_id = t.id AND tm.player_id = ? AND tm.active = 1
+     WHERE lm.status NOT IN ('completed', 'cancelled')
+       AND lm.match_date >= date('now')
+     ORDER BY lm.match_date ASC
+     LIMIT 1`
+  ).bind(id).first<{
+    id: string; match_date: string; opponent_team: string;
+    match_time: string | null; location: string | null; is_home: number;
+    team_name: string; team_slug: string;
+  }>();
+
   return (
     <div className="space-y-6">
       <div>
@@ -197,6 +237,71 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
               <p className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400 tracking-wider mb-1">League Form</p>
               <p className="text-sm italic text-emerald-900 dark:text-emerald-200">{player.league_form}</p>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Next Match */}
+      {(nextTourneyMatch || nextLeagueMatch) && (
+        <div className="space-y-2">
+          {nextTourneyMatch && nextTourneyMatch.opponent_name && (
+            <Link
+              href={`/tournament/${nextTourneyMatch.tournament_slug}/match/${nextTourneyMatch.id}`}
+              className="block bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 hover:border-amber-400 dark:hover:border-amber-600 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400 tracking-wider">Next Tournament Match</p>
+                <span className="text-[10px] text-amber-600 dark:text-amber-400">
+                  {nextTourneyMatch.scheduled_date
+                    ? new Date(nextTourneyMatch.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+                    : `Week ${nextTourneyMatch.week}`}
+                </span>
+              </div>
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                vs{" "}
+                <span>{nextTourneyMatch.opponent_name}</span>
+              </p>
+              <p className="text-[10px] text-amber-700 dark:text-amber-400 mt-0.5">{nextTourneyMatch.tournament_name}</p>
+              {nextTourneyMatch.win_probability != null && (
+                <div className="mt-2">
+                  <div className="h-1.5 rounded-full bg-amber-200 dark:bg-amber-900 overflow-hidden flex">
+                    <div
+                      className="bg-amber-500 dark:bg-amber-400 h-full transition-all"
+                      style={{ width: `${Math.round((nextTourneyMatch.my_tp_id === nextTourneyMatch.participant1_id ? nextTourneyMatch.win_probability : 1 - nextTourneyMatch.win_probability) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
+                    {Math.round((nextTourneyMatch.my_tp_id === nextTourneyMatch.participant1_id ? nextTourneyMatch.win_probability : 1 - nextTourneyMatch.win_probability) * 100)}% win probability
+                  </p>
+                </div>
+              )}
+              {nextTourneyMatch.pre_match_quip && (
+                <p className="text-xs italic text-amber-800 dark:text-amber-300 mt-1.5">{nextTourneyMatch.pre_match_quip}</p>
+              )}
+            </Link>
+          )}
+          {nextLeagueMatch && (
+            <Link
+              href={`/team/${nextLeagueMatch.team_slug}/match/${nextLeagueMatch.id}`}
+              className="block bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl px-4 py-3 hover:border-indigo-400 dark:hover:border-indigo-600 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[10px] font-bold uppercase text-indigo-600 dark:text-indigo-400 tracking-wider">Next League Match</p>
+                <span className="text-[10px] text-indigo-600 dark:text-indigo-400">
+                  {new Date(nextLeagueMatch.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                </span>
+              </div>
+              <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">
+                vs {nextLeagueMatch.opponent_team}
+                <span className="ml-1.5 text-xs font-normal text-indigo-600 dark:text-indigo-400">
+                  ({nextLeagueMatch.is_home ? "Home" : "Away"})
+                </span>
+              </p>
+              <p className="text-[10px] text-indigo-700 dark:text-indigo-400 mt-0.5">
+                {nextLeagueMatch.team_name}
+                {nextLeagueMatch.location ? ` · ${nextLeagueMatch.location}` : ""}
+              </p>
+            </Link>
           )}
         </div>
       )}
