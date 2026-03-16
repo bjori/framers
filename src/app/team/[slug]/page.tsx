@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import { TeamTabs } from "@/components/team-tabs";
 import { LineupChat } from "@/components/lineup-chat";
+import { NextMatchCard, type NextMatchData } from "@/components/next-match-card";
 import { Suspense } from "react";
 
 interface LeagueMatch {
@@ -90,6 +91,72 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
     ? "Schedule is TBD, likely available March 20th. Check back soon!"
     : undefined;
 
+  // Next upcoming match with lineup and preview data
+  let nextMatchData: NextMatchData | null = null;
+  const nextMatch = matches.find((m) => m.status !== "completed" && m.status !== "cancelled" && m.match_date >= new Date().toISOString().slice(0, 10));
+  if (nextMatch) {
+    const lineup = await db.prepare(
+      "SELECT id, status, confirmed_at, locked_at FROM lineups WHERE match_id = ?"
+    ).bind(nextMatch.id).first<{ id: string; status: string; confirmed_at: string | null; locked_at: string | null }>();
+
+    let lineupSlots: { position: string; player_name: string; player_id: string; acknowledged: number | null }[] = [];
+    if (lineup) {
+      lineupSlots = (await db.prepare(
+        `SELECT ls.position, p.name as player_name, ls.player_id, ls.acknowledged
+         FROM lineup_slots ls
+         JOIN players p ON p.id = ls.player_id
+         WHERE ls.lineup_id = ? AND ls.is_alternate = 0
+         ORDER BY ls.position`
+      ).bind(lineup.id).all<{ position: string; player_name: string; player_id: string; acknowledged: number | null }>()).results;
+    }
+
+    const rsvpCounts = await db.prepare(
+      `SELECT
+        COUNT(CASE WHEN status = 'yes' THEN 1 END) as yes_count,
+        COUNT(CASE WHEN status = 'maybe' THEN 1 END) as maybe_count,
+        COUNT(CASE WHEN status = 'no' THEN 1 END) as no_count
+       FROM availability WHERE match_id = ?`
+    ).bind(nextMatch.id).first<{ yes_count: number; maybe_count: number; no_count: number }>();
+
+    let preview: { quip: string; lineInsights: { position: string; players: string; insight: string }[]; generatedAt: string } | null = null;
+    try {
+      const raw = await db.prepare("SELECT pre_match_preview FROM league_matches WHERE id = ?")
+        .bind(nextMatch.id).first<{ pre_match_preview: string | null }>();
+      if (raw?.pre_match_preview) {
+        preview = JSON.parse(raw.pre_match_preview);
+      }
+    } catch { /* column may not exist yet */ }
+
+    const allConfirmed = lineupSlots.length > 0 && lineupSlots.every((s) => s.acknowledged === 1);
+
+    let lineupStatusLabel = "Awaiting lineup";
+    if (lineup) {
+      if (lineup.status === "locked" || allConfirmed) lineupStatusLabel = "Lineup locked";
+      else if (lineup.status === "confirmed") lineupStatusLabel = "Lineup confirmed";
+      else if (lineup.status === "draft") lineupStatusLabel = "Lineup draft";
+    }
+
+    nextMatchData = {
+      matchId: nextMatch.id,
+      opponentTeam: nextMatch.opponent_team,
+      matchDate: nextMatch.match_date,
+      matchTime: nextMatch.match_time,
+      location: nextMatch.location,
+      isHome: !!nextMatch.is_home,
+      status: nextMatch.status,
+      lineupStatus: lineupStatusLabel,
+      lineupSlots: lineupSlots.map((s) => ({
+        position: s.position,
+        playerName: s.player_name,
+        playerId: s.player_id,
+        acknowledged: s.acknowledged === 1,
+      })),
+      rsvp: rsvpCounts ? { yes: rsvpCounts.yes_count, maybe: rsvpCounts.maybe_count, no: rsvpCounts.no_count } : { yes: 0, maybe: 0, no: 0 },
+      preview,
+      slug,
+    };
+  }
+
   const isAdmin = session?.is_admin === 1;
   let canManage = isAdmin;
   if (session && !isAdmin) {
@@ -112,6 +179,8 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
           {team.league} &middot; {team.season_year} &middot; {totalLines} lines &middot; Record: {record}
         </p>
       </div>
+
+      {nextMatchData && <NextMatchCard data={nextMatchData} />}
 
       <Suspense>
         <TeamTabs

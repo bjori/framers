@@ -353,6 +353,17 @@ export async function GET(request: NextRequest) {
     }));
     await sendEmailBatch(goodLuckBatch);
 
+    // Generate/refresh the match preview card for the team page
+    if (lineupConfirmed) {
+      try {
+        const { generateMatchPreview } = await import("@/lib/league-match-preview");
+        await generateMatchPreview(match.id);
+        log.push(`[Match preview] ${match.opponent_team}: generated`);
+      } catch (e) {
+        log.push(`[Match preview] ${match.opponent_team}: error — ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
     await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
       .bind("prematch_email", match.id, now.toISOString()).run();
     log.push(`[Pre-match] ${match.opponent_team} tomorrow: sent to ${teamMembers.length} members`);

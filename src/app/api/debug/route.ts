@@ -656,6 +656,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, log });
     }
 
+    if (body.action === "generate-match-preview") {
+      const matchId = (body as { matchId?: string }).matchId;
+      if (!matchId) return NextResponse.json({ error: "matchId required" }, { status: 400 });
+      const { generateMatchPreview } = await import("@/lib/league-match-preview");
+      const preview = await generateMatchPreview(matchId);
+      return NextResponse.json({ ok: true, preview });
+    }
+
+    if (body.action === "generate-all-match-previews") {
+      const teamSlug = (body as { teamSlug?: string }).teamSlug ?? "senior-framers-2026";
+      const upcoming = (await db.prepare(
+        `SELECT lm.id FROM league_matches lm
+         JOIN teams t ON t.id = lm.team_id
+         JOIN lineups l ON l.match_id = lm.id AND l.status IN ('confirmed', 'locked')
+         WHERE t.slug = ? AND lm.status NOT IN ('completed', 'cancelled')
+           AND lm.match_date >= date('now')
+         ORDER BY lm.match_date ASC`
+      ).bind(teamSlug).all<{ id: string }>()).results;
+
+      const log: string[] = [];
+      const { generateMatchPreview } = await import("@/lib/league-match-preview");
+      for (const m of upcoming) {
+        try {
+          const preview = await generateMatchPreview(m.id);
+          log.push(`[Preview] ${m.id}: ${preview ? "generated" : "skipped (no data)"}`);
+        } catch (e) {
+          log.push(`[Preview] ${m.id}: error — ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      return NextResponse.json({ ok: true, log });
+    }
+
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

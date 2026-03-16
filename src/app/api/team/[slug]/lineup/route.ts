@@ -246,6 +246,18 @@ export async function POST(
 
     const trackEvent = body.action === "confirm" ? "lineup_confirmed" : "lineup_saved";
     track(trackEvent, { playerId: session.player_id, detail: `match:${body.matchId}` });
+
+    if (body.action === "confirm") {
+      (async () => {
+        try {
+          const { generateMatchPreview } = await import("@/lib/league-match-preview");
+          await generateMatchPreview(body.matchId!);
+        } catch (e) {
+          console.error("[Match preview generation]", e);
+        }
+      })();
+    }
+
     return NextResponse.json({ ok: true, lineupId });
   }
 
