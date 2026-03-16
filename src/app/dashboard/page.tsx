@@ -16,6 +16,9 @@ interface UpcomingTournamentMatch {
   scheduled_time: string;
   court: string;
   status: string;
+  pre_match_quip: string | null;
+  win_probability: number | null;
+  is_p1: number;
 }
 
 interface UpcomingLeagueMatch {
@@ -85,7 +88,9 @@ export default async function DashboardPage() {
         .prepare(
           `SELECT tm.id as match_id, t.name as tournament_name, t.slug as tournament_slug,
                   COALESCE(opp_p.name, 'TBD') as opponent_name,
-                  tm.scheduled_date, tm.scheduled_time, tm.court, tm.status
+                  tm.scheduled_date, tm.scheduled_time, tm.court, tm.status,
+                  tm.pre_match_quip, tm.win_probability,
+                  CASE WHEN my_tp.id = tm.participant1_id THEN 1 ELSE 0 END as is_p1
            FROM tournament_matches tm
            JOIN tournaments t ON t.id = tm.tournament_id
            JOIN tournament_participants my_tp ON my_tp.id IN (tm.participant1_id, tm.participant2_id)
@@ -296,22 +301,33 @@ export default async function DashboardPage() {
             {allEvents.map((ev) => {
               if (ev.kind === "tournament") {
                 const m = ev.data as UpcomingTournamentMatch;
+                const myProb = m.win_probability != null
+                  ? (m.is_p1 ? m.win_probability : 1 - m.win_probability)
+                  : null;
                 return (
                   <Link
                     key={`t-${m.match_id}`}
                     href={`/tournament/${m.tournament_slug}/match/${m.match_id}`}
-                    className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    className="block p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   >
-                    <div>
-                      <p className="font-medium text-sm">vs {m.opponent_name}</p>
-                      <p className="text-xs text-slate-500">{m.tournament_name}</p>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-sm">vs {m.opponent_name}</p>
+                        <p className="text-xs text-slate-500">{m.tournament_name}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-semibold">
+                          {new Date(m.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                        </p>
+                        <p className="text-[11px] text-slate-400">{m.scheduled_time}{m.court ? ` · ${m.court}` : ""}</p>
+                        {myProb != null && (
+                          <p className="text-[10px] font-mono text-slate-400 mt-0.5">{Math.round(myProb * 100)}% win</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-xs font-semibold">
-                        {new Date(m.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                      </p>
-                      <p className="text-[11px] text-slate-400">{m.scheduled_time}{m.court ? ` · ${m.court}` : ""}</p>
-                    </div>
+                    {m.pre_match_quip && (
+                      <p className="text-xs italic text-slate-500 dark:text-slate-400 mt-1.5">{m.pre_match_quip}</p>
+                    )}
                   </Link>
                 );
               }
