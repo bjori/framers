@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession, canAccessAdmin } from "@/lib/auth";
-import { sendEmail, sendEmailBatch, emailTemplate } from "@/lib/email";
+import { sendEmail, sendEmailBatch, emailTemplate, listSender } from "@/lib/email";
 import { track } from "@/lib/analytics";
 
 export async function POST(request: NextRequest) {
@@ -34,10 +34,12 @@ export async function POST(request: NextRequest) {
   }
 
   const team = await db
-    .prepare("SELECT id, name FROM teams WHERE id = ?")
+    .prepare("SELECT id, name, slug FROM teams WHERE id = ?")
     .bind(body.teamId)
-    .first<{ id: string; name: string }>();
+    .first<{ id: string; name: string; slug: string }>();
   if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
+
+  const { from, replyTo } = listSender(team.slug, team.name);
 
   const members = (
     await db
@@ -72,6 +74,8 @@ export async function POST(request: NextRequest) {
         to: senderEmail.email,
         subject: `[TEST] [${team.name}] ${body.subject}`,
         html: bodyHtml,
+        from,
+        replyTo,
       });
     }
     return NextResponse.json({ ok: true, sent: 1, total: members.length, failed: [], testOnly: true });
@@ -81,6 +85,8 @@ export async function POST(request: NextRequest) {
     to: member.email,
     subject: `[${team.name}] ${body.subject}`,
     html: bodyHtml,
+    from,
+    replyTo,
   }));
   const batchResult = await sendEmailBatch(batch);
   const sentCount = batchResult.sent;

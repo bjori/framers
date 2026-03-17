@@ -205,10 +205,43 @@ export async function GET(_request: NextRequest, { params }: Params) {
     location: string; title: string; cancelled: number; my_rsvp: string | null;
   }>;
 
+  const practiceIds = practices.map((p) => p.id);
+  const allRsvps = practiceIds.length > 0
+    ? (await db.prepare(
+        `SELECT pr.session_id, pr.status, p.name
+         FROM practice_rsvp pr
+         JOIN players p ON p.id = pr.player_id
+         WHERE pr.session_id IN (${practiceIds.map(() => "?").join(",")})
+           AND pr.status IN ('yes', 'maybe', 'no')
+         ORDER BY pr.session_id, CASE pr.status WHEN 'yes' THEN 0 WHEN 'maybe' THEN 1 WHEN 'no' THEN 2 END, p.name`
+      ).bind(...practiceIds).all<{ session_id: string; status: string; name: string }>()).results
+    : [];
+
+  const rsvpsByPractice = new Map<string, Array<{ status: string; name: string }>>();
+  for (const r of allRsvps) {
+    const arr = rsvpsByPractice.get(r.session_id) ?? [];
+    arr.push({ status: r.status, name: r.name });
+    rsvpsByPractice.set(r.session_id, arr);
+  }
+
   for (const p of practices) {
     const startStr = localTime(p.session_date, p.start_time);
     const endStr = localTime(p.session_date, p.end_time);
-    const rsvp = p.my_rsvp ? ` | Your RSVP: ${p.my_rsvp}` : "";
+
+    const rsvps = rsvpsByPractice.get(p.id) ?? [];
+    const yesNames = rsvps.filter((r) => r.status === "yes").map((r) => r.name);
+    const maybeNames = rsvps.filter((r) => r.status === "maybe").map((r) => r.name);
+    const noNames = rsvps.filter((r) => r.status === "no").map((r) => r.name);
+
+    const descParts: string[] = [p.title];
+    if (p.my_rsvp) descParts.push(`Your RSVP: ${p.my_rsvp}`);
+    if (rsvps.length > 0) {
+      descParts.push("");
+      if (yesNames.length > 0) descParts.push(`Yes: ${yesNames.join(", ")}`);
+      if (maybeNames.length > 0) descParts.push(`Maybe: ${maybeNames.join(", ")}`);
+      if (noNames.length > 0) descParts.push(`No: ${noNames.join(", ")}`);
+    }
+    descParts.push("", `RSVP: https://framers.app/practice/${p.id}`);
 
     cal.createEvent({
       id: `practice-${p.id}@framers.app`,
@@ -216,7 +249,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
       timezone: TZ,
       end: endStr,
       summary: p.title,
-      description: `${p.title}${rsvp}\n\nRSVP: https://framers.app/practice/${p.id}`,
+      description: descParts.join("\n"),
       location: p.location,
       status: p.cancelled ? ICalEventStatus.CANCELLED : ICalEventStatus.CONFIRMED,
       url: `https://framers.app/practice/${p.id}`,
