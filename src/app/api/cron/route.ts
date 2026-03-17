@@ -17,7 +17,7 @@ const POSITION_LABELS: Record<string, string> = {
  * Cron endpoint - call via GET /api/cron?key=CRON_SECRET
  * Runs daily to:
  * 1. Auto-transition match statuses (close RSVPs past deadline, flag low-availability)
- * 2. Send RSVP reminders for matches 2-5 days out with < 50% response (once per match per day)
+ * 2. "We need you!" at 2 weeks out + RSVP reminders 2-5 days out, to all non-responders (once per match)
  * 3. Tournament score reminders for overdue matches (once per match, then every 3 days)
  * 4. USTA sync (scores, roster, schedule) + ELO recalculation for all active teams
  */
@@ -46,7 +46,67 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 2. RSVP reminders: matches 2-5 days out with < 50% response rate
+  // 2a. "We need you!" — 2 weeks before match, to ALL non-responders (skip unconfirmed away)
+  const twoWeeksOut = new Date(now.getTime() + 14 * 86400000).toISOString().slice(0, 10);
+  const weNeedYouMatches = (
+    await db.prepare(
+      `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id,
+              t.name as team_name, t.slug as team_slug
+       FROM league_matches lm
+       JOIN teams t ON t.id = lm.team_id
+       WHERE lm.status IN ('open', 'needs_players')
+         AND lm.match_date = ?
+         AND (lm.is_home = 1 OR (lm.notes IS NOT NULL AND trim(lm.notes) != ''))`
+    ).bind(twoWeeksOut).all<{
+      id: string; opponent_team: string; match_date: string; team_id: string;
+      team_name: string; team_slug: string;
+    }>()
+  ).results;
+
+  for (const match of weNeedYouMatches) {
+    const alreadySent = (
+      await db.prepare("SELECT COUNT(*) as cnt FROM app_events WHERE event = 'we_need_you' AND detail LIKE ?")
+        .bind(`${match.id}|%`).first<{ cnt: number }>()
+    )?.cnt ?? 0;
+    if (alreadySent > 0) continue;
+
+    const nonResponders = (
+      await db.prepare(
+        `SELECT p.email, p.name FROM team_memberships tm
+         JOIN players p ON p.id = tm.player_id
+         LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
+         WHERE tm.team_id = ? AND tm.active = 1 AND a.status IS NULL`
+      ).bind(match.id, match.team_id).all<{ email: string; name: string }>()
+    ).results;
+
+    if (nonResponders.length > 0) {
+      const dateStr = new Date(match.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+      const sender = listSender(match.team_slug, match.team_name);
+      const batch = nonResponders.map((m) => ({
+        to: m.email,
+        subject: `We need you! RSVP for ${match.opponent_team} on ${dateStr}`,
+        ...sender,
+        html: emailTemplate(
+          `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${m.name.split(" ")[0]},</h2>
+           <p>We need your RSVP for our match against <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
+           <p>Please let us know if you can make it so we can finalize the lineup!</p>`,
+          {
+            heading: "RSVP Needed",
+            ctaUrl: `https://framers.app/team/${match.team_slug}/match/${match.id}`,
+            ctaLabel: "RSVP Now",
+          }
+        ),
+        headers: matchThreadHeaders(match.id),
+      }));
+      await sendEmailBatch(batch);
+      await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+        .bind("we_need_you", `${match.id}|${nonResponders.length} recipients`, now.toISOString())
+        .run();
+      log.push(`[We need you!] ${match.opponent_team} on ${match.match_date}: sent to ${nonResponders.length} non-responders`);
+    }
+  }
+
+  // 2b. RSVP reminders: matches 2-5 days out, to ALL non-responders (skip unconfirmed away)
   const remindStart = new Date(now.getTime() + 2 * 86400000).toISOString().slice(0, 10);
   const remindEnd = new Date(now.getTime() + 5 * 86400000).toISOString().slice(0, 10);
 
@@ -57,7 +117,8 @@ export async function GET(request: NextRequest) {
        FROM league_matches lm
        JOIN teams t ON t.id = lm.team_id
        WHERE lm.status IN ('open', 'needs_players')
-         AND lm.match_date BETWEEN ? AND ?`
+         AND lm.match_date BETWEEN ? AND ?
+         AND (lm.is_home = 1 OR (lm.notes IS NOT NULL AND trim(lm.notes) != ''))`
     ).bind(remindStart, remindEnd).all<{
       id: string; opponent_team: string; match_date: string; team_id: string;
       team_name: string; team_slug: string;
@@ -71,28 +132,17 @@ export async function GET(request: NextRequest) {
     )?.cnt ?? 0;
     if (alreadySentToday > 0) continue;
 
-    const memberCount = (
-      await db.prepare("SELECT COUNT(*) as cnt FROM team_memberships WHERE team_id = ? AND active = 1")
-        .bind(match.team_id).first<{ cnt: number }>()
-    )?.cnt ?? 0;
+    const nonResponders = (
+      await db.prepare(
+        `SELECT p.email, p.name FROM team_memberships tm
+         JOIN players p ON p.id = tm.player_id
+         LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
+         WHERE tm.team_id = ? AND tm.active = 1 AND a.status IS NULL`
+      ).bind(match.id, match.team_id).all<{ email: string; name: string }>()
+    ).results;
 
-    const rsvpCount = (
-      await db.prepare("SELECT COUNT(*) as cnt FROM availability WHERE match_id = ? AND status IN ('yes','no','maybe')")
-        .bind(match.id).first<{ cnt: number }>()
-    )?.cnt ?? 0;
-
-    if (memberCount > 0 && rsvpCount / memberCount < 0.5) {
-      const nonResponders = (
-        await db.prepare(
-          `SELECT p.email, p.name FROM team_memberships tm
-           JOIN players p ON p.id = tm.player_id
-           LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
-           WHERE tm.team_id = ? AND tm.active = 1 AND a.status IS NULL`
-        ).bind(match.id, match.team_id).all<{ email: string; name: string }>()
-      ).results;
-
+    if (nonResponders.length > 0) {
       const dateStr = new Date(match.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-
       const sender = listSender(match.team_slug, match.team_name);
       const batch = nonResponders.map((m) => ({
         to: m.email,
@@ -111,11 +161,9 @@ export async function GET(request: NextRequest) {
         headers: matchThreadHeaders(match.id),
       }));
       await sendEmailBatch(batch);
-
       await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
         .bind("rsvp_reminder", `${match.id}|${nonResponders.length} recipients`, now.toISOString())
         .run();
-
       log.push(`[RSVP reminder] ${match.opponent_team} on ${match.match_date}: sent to ${nonResponders.length} non-responders`);
     }
   }

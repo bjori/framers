@@ -1,5 +1,4 @@
 import { getDB } from "@/lib/db";
-import { sendEmailBatch, emailTemplate } from "@/lib/email";
 
 export type MatchStatus = "open" | "needs_players" | "rsvp_closed" | "lineup_draft" | "lineup_confirmed" | "locked" | "completed" | "cancelled";
 
@@ -48,41 +47,7 @@ export async function transitionMatch(matchId: string, newStatus: MatchStatus, c
     ).bind(crypto.randomUUID(), matchId, changedBy.id, changedBy.name, match.status, newStatus).run();
   }
 
-  if (newStatus === "needs_players") {
-    await sendNeedsPlayersEmail(match.team_id, match.opponent_team, match.match_date, match.team_slug, matchId);
-  }
-
   return { ok: true };
-}
-
-async function sendNeedsPlayersEmail(teamId: string, opponent: string, date: string, teamSlug: string, matchId: string) {
-  const db = await getDB();
-  const members = (
-    await db.prepare(
-      `SELECT p.email, p.name FROM players p
-       JOIN team_memberships tm ON tm.player_id = p.id AND tm.team_id = ? AND tm.active = 1
-       LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
-       WHERE a.status IS NULL OR a.status = 'pending'`
-    ).bind(teamId, matchId).all<{ email: string; name: string }>()
-  ).results;
-
-  const dateStr = new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-
-  const batch = members.map((m) => ({
-    to: m.email,
-    subject: `We need you! RSVP for ${opponent} on ${dateStr}`,
-    html: emailTemplate(
-      `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${m.name.split(" ")[0]},</h2>
-       <p>We're short on players for our match against <strong>${opponent}</strong> on <strong>${dateStr}</strong>.</p>
-       <p>Please RSVP as soon as possible so we can finalize the lineup!</p>`,
-      {
-        heading: "RSVP Needed",
-        ctaUrl: `https://framers.app/team/${teamSlug}/match/${matchId}`,
-        ctaLabel: "RSVP Now",
-      }
-    ),
-  }));
-  await sendEmailBatch(batch);
 }
 
 export async function checkAutoTransitions(teamId: string): Promise<string[]> {
@@ -90,12 +55,15 @@ export async function checkAutoTransitions(teamId: string): Promise<string[]> {
   const transitions: string[] = [];
   const now = new Date();
 
+  const today = now.toISOString().slice(0, 10);
+  const twoWeeksOut = new Date(now.getTime() + 14 * 86400000).toISOString().slice(0, 10);
+
   const openMatches = (
     await db.prepare(
-      `SELECT id, match_date, rsvp_deadline, status FROM league_matches
+      `SELECT id, match_date, rsvp_deadline, status, is_home, notes FROM league_matches
        WHERE team_id = ? AND status IN ('open', 'needs_players')
        ORDER BY match_date`
-    ).bind(teamId).all<{ id: string; match_date: string; rsvp_deadline: string | null; status: string }>()
+    ).bind(teamId).all<{ id: string; match_date: string; rsvp_deadline: string | null; status: string; is_home: number; notes: string | null }>()
   ).results;
 
   for (const match of openMatches) {
@@ -105,6 +73,11 @@ export async function checkAutoTransitions(teamId: string): Promise<string[]> {
       continue;
     }
 
+    // Only send "We need you!" / transition to needs_players for matches within 2 weeks
+    const matchInWindow = match.match_date >= today && match.match_date <= twoWeeksOut;
+    // Skip unconfirmed away matches (no location/notes yet)
+    const isAwayUnconfirmed = match.is_home === 0 && (!match.notes || match.notes.trim() === "");
+
     const yesCount = (
       await db.prepare(
         "SELECT COUNT(*) as cnt FROM availability WHERE match_id = ? AND status = 'yes'"
@@ -112,8 +85,11 @@ export async function checkAutoTransitions(teamId: string): Promise<string[]> {
     )?.cnt ?? 0;
 
     if (yesCount < 4 && match.status === "open") {
-      await transitionMatch(match.id, "needs_players");
-      transitions.push(`${match.id}: open -> needs_players (only ${yesCount} yes)`);
+      // Don't nag for matches months out or unconfirmed away (no location/notes)
+      if (matchInWindow && !isAwayUnconfirmed) {
+        await transitionMatch(match.id, "needs_players");
+        transitions.push(`${match.id}: open -> needs_players (only ${yesCount} yes)`);
+      }
     } else if (yesCount >= 4 && match.status === "needs_players") {
       await transitionMatch(match.id, "open");
       transitions.push(`${match.id}: needs_players -> open (${yesCount} yes)`);
