@@ -10,7 +10,7 @@ export async function GET() {
 
   const db = await getDB();
 
-  const [summary7d, summary30d, recentEvents, loginAttempts, dailyActivity, topUsers] =
+  const [summary7d, summary30d, recentEvents, loginAttempts, dailyActivity, topUsers, calendarSubscribers] =
     await Promise.all([
       db
         .prepare(
@@ -34,7 +34,7 @@ export async function GET() {
         .prepare(
           `SELECT e.event, e.player_id, p.name as player_name, e.detail, e.ip, e.created_at
            FROM app_events e LEFT JOIN players p ON p.id = e.player_id
-           WHERE e.event NOT IN ('email.delivered','email.opened','email.clicked','email.bounced','email.complained')
+           WHERE e.event NOT IN ('email.delivered','email.opened','email.clicked','email.bounced','email.complained','calendar_fetched')
            ORDER BY e.created_at DESC LIMIT 100`
         )
         .all<{
@@ -72,6 +72,17 @@ export async function GET() {
            GROUP BY e.player_id ORDER BY cnt DESC LIMIT 15`
         )
         .all<{ player_id: string; player_name: string; cnt: number }>(),
+
+      db
+        .prepare(
+          `SELECT e.player_id, p.name as player_name, max(e.created_at) as last_fetched_at
+           FROM app_events e
+           JOIN players p ON p.id = e.player_id
+           WHERE e.event = 'calendar_fetched' AND e.player_id IS NOT NULL
+           GROUP BY e.player_id
+           ORDER BY last_fetched_at DESC`
+        )
+        .all<{ player_id: string; player_name: string; last_fetched_at: string }>(),
     ]);
 
   return NextResponse.json({
@@ -81,5 +92,6 @@ export async function GET() {
     loginAttempts: loginAttempts.results,
     dailyActivity: dailyActivity.results,
     topUsers: topUsers.results,
+    calendarSubscribers: calendarSubscribers.results,
   });
 }

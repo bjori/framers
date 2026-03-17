@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
+import { track } from "@/lib/analytics";
 import ical, { ICalCalendarMethod, ICalEventStatus } from "ical-generator";
 
 const TZ = "America/Los_Angeles";
@@ -255,6 +256,8 @@ export async function GET(_request: NextRequest, { params }: Params) {
       url: `https://framers.app/practice/${p.id}`,
     });
   }
+
+  track("calendar_fetched", { playerId: player.id });
 
   return new NextResponse(cal.toString(), {
     headers: {

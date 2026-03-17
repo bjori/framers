@@ -30,6 +30,12 @@ interface TopUser {
   cnt: number;
 }
 
+interface CalendarSubscriber {
+  player_id: string;
+  player_name: string;
+  last_fetched_at: string;
+}
+
 interface AnalyticsData {
   summary7d: EventSummary[];
   summary30d: EventSummary[];
@@ -37,6 +43,7 @@ interface AnalyticsData {
   loginAttempts: LoginAttempt[];
   dailyActivity: DailyActivity[];
   topUsers: TopUser[];
+  calendarSubscribers: CalendarSubscriber[];
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -66,6 +73,7 @@ const EVENT_LABELS: Record<string, string> = {
   announcement_sent: "Announcement Sent",
   admin_impersonate: "Impersonation",
   preferences_updated: "Preferences Updated",
+  calendar_fetched: "Calendar Fetched",
 };
 
 const EVENT_COLORS: Record<string, string> = {
@@ -95,6 +103,7 @@ const EVENT_COLORS: Record<string, string> = {
   announcement_sent: "bg-pink-100 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300",
   admin_impersonate: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
   preferences_updated: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  calendar_fetched: "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300",
 };
 
 function formatDetail(event: string, detail: string | null): string {
@@ -249,6 +258,29 @@ export default function AnalyticsDashboard() {
                       );
                     })}
                 </div>
+              )}
+            </div>
+          </section>
+
+          {/* Calendar subscribers */}
+          <section>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Calendar Subscribers</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
+              Players whose personal calendar feed has been fetched (e.g. added to Google/Apple Calendar). Last fetch = when their calendar app last refreshed.
+            </p>
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-700">
+              {(data.calendarSubscribers ?? []).map((s) => (
+                <div key={s.player_id} className="flex items-center justify-between px-4 py-2.5">
+                  <a href={`/player/${s.player_id}`} className="text-sm font-medium text-sky-600 dark:text-sky-400 hover:underline">
+                    {s.player_name}
+                  </a>
+                  <span className="text-sm text-slate-500 dark:text-slate-400" title={s.last_fetched_at}>
+                    {relTime(s.last_fetched_at)}
+                  </span>
+                </div>
+              ))}
+              {(data.calendarSubscribers ?? []).length === 0 && (
+                <p className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">No calendar fetches yet.</p>
               )}
             </div>
           </section>
