@@ -2,6 +2,8 @@
 
 export interface TRTeamPlayer {
   name: string;
+  /** Full profile path including section param (e.g. /adult/profile.aspx?playername=Kelly%20Lynch&s=2) for disambiguation */
+  profilePath?: string;
   ntrp: string;
   seasonRecord: string;
   localSingles: string;
@@ -84,12 +86,23 @@ export function parseTeamRoster(html: string): TRTeamPlayer[] {
   if (!largeSection) return players;
   const section = largeSection[1];
 
-  // Each row: <a href="/adult/profile.aspx?playername=...">Name</a> followed by <td> cells
-  const rowRegex = /<a\s+class="link"\s+href="\/adult\/profile\.aspx\?playername=[^"]*">([^<]+)<\/a>[\s\S]*?<\/tr>/gi;
+  // Each row: <a href="/adult/profile.aspx?playername=...">Name</a> or with &s=N for disambiguation
+  const rowRegex = /<a\s+class="link"\s+href="([^"]*profile\.aspx\?[^"]+)">([^<]+)<\/a>[\s\S]*?<\/tr>/gi;
   let match;
   while ((match = rowRegex.exec(section)) !== null) {
     const row = match[0];
-    const name = match[1].trim();
+    let profilePath = match[1].trim();
+    if (profilePath.startsWith("http")) {
+      try {
+        const u = new URL(profilePath);
+        profilePath = u.pathname + u.search;
+      } catch {
+        profilePath = "/adult/profile.aspx";
+      }
+    } else if (!profilePath.startsWith("/")) {
+      profilePath = "/" + profilePath;
+    }
+    const name = match[2].trim();
 
     // Extract all <td> content values from the row
     const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
@@ -111,6 +124,7 @@ export function parseTeamRoster(html: string): TRTeamPlayer[] {
 
     players.push({
       name,
+      profilePath: profilePath || undefined,
       ntrp,
       seasonRecord,
       localSingles,
@@ -188,8 +202,11 @@ export function parsePlayerProfile(html: string): TRPlayerProfile {
   return result;
 }
 
-export async function scrapePlayerProfile(playerName: string): Promise<TRPlayerProfile | null> {
-  const path = `/adult/profile.aspx?playername=${encodeURIComponent(playerName)}`;
+export async function scrapePlayerProfile(
+  playerName: string,
+  profilePath?: string,
+): Promise<TRPlayerProfile | null> {
+  const path = profilePath ?? `/adult/profile.aspx?playername=${encodeURIComponent(playerName)}`;
   const html = await fetchTennisRecord(path);
   if (!html) return null;
   return parsePlayerProfile(html);
@@ -246,8 +263,13 @@ export function parsePlayerStats(html: string): TRPlayerStats {
   return result;
 }
 
-export async function scrapePlayerStats(playerName: string, year: number): Promise<TRPlayerStats | null> {
-  const path = `/adult/playerstats.aspx?playername=${encodeURIComponent(playerName)}&year=${year}&mt=0`;
+export async function scrapePlayerStats(
+  playerName: string,
+  year: number,
+  sectionParam?: string,
+): Promise<TRPlayerStats | null> {
+  let path = `/adult/playerstats.aspx?playername=${encodeURIComponent(playerName)}&year=${year}&mt=0&lt=0&yr=0`;
+  if (sectionParam) path += `&s=${sectionParam}`;
   const html = await fetchTennisRecord(path);
   if (!html) return null;
   return parsePlayerStats(html);
@@ -319,8 +341,13 @@ export function parseMatchHistory(html: string): TRMatchHistoryEntry[] {
   return entries;
 }
 
-export async function scrapeMatchHistory(playerName: string, year: number | "Recent"): Promise<TRMatchHistoryEntry[]> {
-  const path = `/adult/matchhistory.aspx?year=${year}&playername=${encodeURIComponent(playerName)}&mt=0&lt=0&yr=0`;
+export async function scrapeMatchHistory(
+  playerName: string,
+  year: number | "Recent",
+  sectionParam?: string,
+): Promise<TRMatchHistoryEntry[]> {
+  let path = `/adult/matchhistory.aspx?year=${year}&playername=${encodeURIComponent(playerName)}&mt=0&lt=0&yr=0`;
+  if (sectionParam) path += `&s=${sectionParam}`;
   const html = await fetchTennisRecord(path);
   if (!html) return [];
   return parseMatchHistory(html);
@@ -386,16 +413,17 @@ export async function deepScoutTeam(
 
     onProgress?.({ phase: "deep", current: completed, total, player: player.name });
 
+    const sectionParam = player.profilePath?.match(/[?&]s=(\d+)/)?.[1];
     const [profile, stats, history] = await Promise.all([
-      scrapePlayerProfile(player.name).catch((e) => {
+      scrapePlayerProfile(player.name, player.profilePath).catch((e) => {
         console.error(`[TR] Profile error for ${player.name}:`, e);
         return null;
       }),
-      scrapePlayerStats(player.name, year).catch((e) => {
+      scrapePlayerStats(player.name, year, sectionParam).catch((e) => {
         console.error(`[TR] Stats error for ${player.name}:`, e);
         return null;
       }),
-      scrapeMatchHistory(player.name, year).catch((e) => {
+      scrapeMatchHistory(player.name, year, sectionParam).catch((e) => {
         console.error(`[TR] History error for ${player.name}:`, e);
         return [] as TRMatchHistoryEntry[];
       }),

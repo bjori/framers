@@ -688,6 +688,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, log });
     }
 
+    if (body.action === "clear-junior-schedule") {
+      const teamId = "team-junior-framers-2026";
+      const matchIds = (await db.prepare("SELECT id FROM league_matches WHERE team_id = ?").bind(teamId).all<{ id: string }>()).results.map((r) => r.id);
+      if (matchIds.length === 0) return NextResponse.json({ ok: true, deleted: 0, message: "No matches to clear" });
+
+      for (const mid of matchIds) {
+        await db.prepare("DELETE FROM availability WHERE match_id = ?").bind(mid).run();
+        const lineup = await db.prepare("SELECT id FROM lineups WHERE match_id = ?").bind(mid).first<{ id: string }>();
+        if (lineup) {
+          await db.prepare("DELETE FROM lineup_slots WHERE lineup_id = ?").bind(lineup.id).run();
+          await db.prepare("DELETE FROM lineups WHERE id = ?").bind(lineup.id).run();
+        }
+        await db.prepare("DELETE FROM league_match_results WHERE match_id = ?").bind(mid).run();
+      }
+      await db.prepare("DELETE FROM league_matches WHERE team_id = ?").bind(teamId).run();
+      return NextResponse.json({ ok: true, deleted: matchIds.length });
+    }
+
     if (body.action === "sync-team") {
       const { syncUstaTeam } = await import("@/lib/usta-sync");
       const slug = (body as { teamSlug?: string }).teamSlug ?? "junior-framers-2026";

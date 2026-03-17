@@ -127,8 +127,12 @@ export function PlayerDirectory({ players }: { players: Player[] }) {
                     </div>
                   </td>
                   <td className="py-2.5 px-3 text-center text-xs">{p.ntrp_type}</td>
-                  <td className="py-2.5 px-3 text-center text-xs font-semibold">{p.singles_elo}</td>
-                  <td className="py-2.5 px-3 text-center text-xs font-semibold">{p.doubles_elo}</td>
+                  <td className="py-2.5 px-3 text-center text-xs font-semibold">
+                    {p.singles_elo === 1500 ? "—" : p.singles_elo}
+                  </td>
+                  <td className="py-2.5 px-3 text-center text-xs font-semibold">
+                    {p.doubles_elo === 1500 ? "—" : p.doubles_elo}
+                  </td>
                   <td className="py-2.5 px-3 text-center text-xs font-mono text-slate-500">
                     {p.tennisrecord_rating != null ? (
                       <a

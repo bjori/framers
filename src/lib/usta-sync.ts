@@ -106,28 +106,12 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     if (raw) timeUpdates.push({ date: d, rawTime: raw });
   }
 
-  for (const tu of timeUpdates) {
-    const timeMatch = tu.rawTime.match(/(\d{1,2}:\d{2})\s*(AM|PM)/i);
-    let matchTime: string | null = null;
-    if (timeMatch) {
-      const [, t, period] = timeMatch;
-      const [hh, mm] = t.split(":").map(Number);
-      const h24 = period.toUpperCase() === "PM" && hh < 12 ? hh + 12 : period.toUpperCase() === "AM" && hh === 12 ? 0 : hh;
-      matchTime = `${String(h24).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
-    }
-    // Update notes whenever USTA has posted info (confirms match); match_time only when parseable
-    await db.prepare("UPDATE league_matches SET match_time = COALESCE(?, match_time), notes = ? WHERE team_id = ? AND match_date = ?")
-      .bind(matchTime, tu.rawTime, team.id, tu.date).run();
-  }
-
   // Parse schedule: extract matches with opponents and home/away
   const scheduleMatches: ParsedScheduleMatch[] = [];
   const schedSection = teamHtml.indexOf("Team Schedule");
   const rosterStart = teamHtml.indexOf("Team Roster");
   if (schedSection > -1) {
     const schedHtml = teamHtml.substring(schedSection, rosterStart > -1 ? rosterStart : undefined);
-    // Each match spans multiple lines:
-    //   &nbsp;ROUND&nbsp; ... MM/DD/YY ... opponent link ... Home|Away
     const schedRegex = /&nbsp;(\d+)&nbsp;[\s\S]*?(\d{2})\/(\d{2})\/(\d{2})<\/td>[\s\S]*?(?:Teaminfo|teaminfo)\.asp\?id=\d+>([^<]+)<\/a><\/td>\s*<td[^>]*>(Home|Away)<\/td>/gi;
     let schedMatch;
     while ((schedMatch = schedRegex.exec(schedHtml)) !== null) {
@@ -140,11 +124,10 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     }
   }
 
-  // Create or update league_matches from schedule
+  // Create or update league_matches from schedule (run BEFORE timeUpdates so dates are correct)
   let scheduleCreated = 0;
   let scheduleUpdated = 0;
   for (const sm of scheduleMatches) {
-    // Try exact match on date + opponent first (handles double-headers on same date)
     const byOpponent = await db.prepare(
       "SELECT id, round_number, is_home FROM league_matches WHERE team_id = ? AND match_date = ? AND opponent_team = ?"
     ).bind(team.id, sm.matchDate, sm.opponentTeam).first<{ id: string; round_number: number; is_home: number }>();
@@ -159,13 +142,23 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
       continue;
     }
 
-    // Fallback: single match on this date with no opponent yet, or same round + no double-header
+    const byRoundOpponent = await db.prepare(
+      "SELECT id FROM league_matches WHERE team_id = ? AND round_number = ? AND opponent_team = ?"
+    ).bind(team.id, sm.roundNumber, sm.opponentTeam).first<{ id: string }>();
+
+    if (byRoundOpponent) {
+      await db.prepare(
+        "UPDATE league_matches SET match_date = ?, is_home = ? WHERE id = ?"
+      ).bind(sm.matchDate, sm.isHome ? 1 : 0, byRoundOpponent.id).run();
+      scheduleUpdated++;
+      continue;
+    }
+
     const allOnDate = (await db.prepare(
       "SELECT id, opponent_team, round_number FROM league_matches WHERE team_id = ? AND match_date = ?"
     ).bind(team.id, sm.matchDate).all<{ id: string; opponent_team: string; round_number: number }>()).results;
 
     if (allOnDate.length === 1 && !allOnDate[0].opponent_team) {
-      // Unmatched placeholder — update it
       await db.prepare(
         "UPDATE league_matches SET opponent_team = ?, is_home = ?, round_number = ? WHERE id = ?"
       ).bind(sm.opponentTeam, sm.isHome ? 1 : 0, sm.roundNumber, allOnDate[0].id).run();
@@ -176,6 +169,20 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
       ).bind(crypto.randomUUID(), team.id, sm.roundNumber, sm.opponentTeam, sm.matchDate, sm.isHome ? 1 : 0).run();
       scheduleCreated++;
     }
+  }
+
+  for (const tu of timeUpdates) {
+    const timeMatch = tu.rawTime.match(/(\d{1,2}:\d{2})\s*(AM|PM)/i);
+    let matchTime: string | null = null;
+    if (timeMatch) {
+      const [, t, period] = timeMatch;
+      const [hh, mm] = t.split(":").map(Number);
+      const h24 = period.toUpperCase() === "PM" && hh < 12 ? hh + 12 : period.toUpperCase() === "AM" && hh === 12 ? 0 : hh;
+      matchTime = `${String(h24).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    }
+    // Update notes whenever USTA has posted info (confirms match); match_time only when parseable
+    await db.prepare("UPDATE league_matches SET match_time = COALESCE(?, match_time), notes = ? WHERE team_id = ? AND match_date = ?")
+      .bind(matchTime, tu.rawTime, team.id, tu.date).run();
   }
 
   // Sync roster
