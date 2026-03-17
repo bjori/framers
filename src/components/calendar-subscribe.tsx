@@ -14,22 +14,21 @@ export default function CalendarSubscribe() {
     }
   }, []);
 
-  const webcalUrl = feedUrl?.replace(/^https?:\/\//, "webcal://") ?? null;
-
-  async function getFeedUrl() {
+  useEffect(() => {
+    if (dismissed) return;
     setLoading(true);
-    try {
-      const res = await fetch("/api/ics/token");
-      const data = (await res.json()) as { token?: string; error?: string };
-      if (data.token) {
-        setFeedUrl(`${window.location.origin}/api/ics/${data.token}/feed.ics`);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  }
+    fetch("/api/ics/token")
+      .then((res) => res.json() as Promise<{ token?: string; error?: string }>)
+      .then((data) => {
+        if (data.token) {
+          setFeedUrl(`${window.location.origin}/api/ics/${data.token}/feed.ics`);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [dismissed]);
+
+  const webcalUrl = feedUrl?.replace(/^https?:\/\//, "webcal://") ?? null;
 
   async function copyUrl() {
     if (!feedUrl) return;
@@ -64,15 +63,12 @@ export default function CalendarSubscribe() {
       <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
         Subscribe to your personal calendar feed — match dates show as HOLDs, then update with your lineup position when confirmed.
       </p>
-      {!feedUrl ? (
-        <button
-          onClick={getFeedUrl}
-          disabled={loading}
-          className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary-light transition-colors disabled:opacity-50"
-        >
-          {loading ? "Generating..." : "Get Calendar Link"}
-        </button>
-      ) : (
+      {loading ? (
+        <div className="py-4 flex items-center justify-center gap-2 text-sm text-slate-500">
+          <span className="w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+          Loading…
+        </div>
+      ) : feedUrl ? (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
             <a
@@ -121,6 +117,8 @@ export default function CalendarSubscribe() {
             Your calendar will auto-refresh with lineup changes.
           </p>
         </div>
+      ) : (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Unable to load calendar link.</p>
       )}
     </section>
   );
