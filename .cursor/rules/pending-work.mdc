@@ -33,7 +33,7 @@ alwaysApply: true
 
 - The old tournament site `greenbrook-champs.pages.dev` now redirects to `framers.app`. Its KV data is preserved but not actively used
 - `src/app/api/debug/route.ts` has admin actions — protected by `ADMIN_SECRET` (Bearer, X-Admin-Secret, or ?key=)
-- `src/app/api/seed/route.ts` and unauthenticated `setup` also require `ADMIN_SECRET`
+- Unauthenticated `setup` also requires `ADMIN_SECRET`
 - `src/app/api/setup/route.ts` is the schema source of truth — update it when adding tables/columns
 - Scores in tournament_matches use JSON arrays (`"[6,4,10]"`) — always parse with `JSON.parse()` in a try/catch
 - The `app_events` table serves double duty: analytics dashboard AND cron deduplication
