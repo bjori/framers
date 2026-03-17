@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getSession } from "@/lib/auth";
+import { requireAdminSecret } from "@/lib/admin-secret";
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, phone TEXT, password_hash TEXT, ntrp_rating REAL, ntrp_type TEXT, singles_elo INTEGER NOT NULL DEFAULT 1500, doubles_elo INTEGER NOT NULL DEFAULT 1500, avatar_url TEXT, ics_token TEXT UNIQUE, reliability_score REAL NOT NULL DEFAULT 1.0, is_admin INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')))`,
@@ -44,11 +45,13 @@ const MIGRATIONS = [
   `ALTER TABLE league_matches ADD COLUMN pre_match_preview TEXT`,
 ];
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getSession();
-  // Allow unauthenticated only if no players exist yet (initial setup)
-  if (session && session.is_admin !== 1) {
-    return NextResponse.json({ error: "Admin only" }, { status: 403 });
+  const isAdmin = session?.is_admin === 1;
+  // Allow: admin session, or unauthenticated with ADMIN_SECRET (initial setup)
+  if (!isAdmin) {
+    const authErr = await requireAdminSecret(request);
+    if (authErr) return authErr;
   }
 
   try {

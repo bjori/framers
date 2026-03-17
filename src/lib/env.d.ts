@@ -8,6 +8,7 @@ declare global {
     VAPID_PUBLIC_KEY?: string;
     VAPID_PRIVATE_KEY?: string;
     CRON_SECRET?: string;
+    ADMIN_SECRET?: string;
     RESEND_WEBHOOK_SECRET?: string;
     OPENAI_API_KEY?: string;
   }

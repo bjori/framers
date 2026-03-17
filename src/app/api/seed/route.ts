@@ -1,7 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { requireAdminSecret } from "@/lib/admin-secret";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authErr = await requireAdminSecret(request);
+  if (authErr) return authErr;
+
   try {
     const { env } = await getCloudflareContext({ async: true });
     const db = env.DB;

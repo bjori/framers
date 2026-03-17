@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   const cronSecret = env.CRON_SECRET;
   const providedKey = request.nextUrl.searchParams.get("key");
 
-  if (cronSecret && providedKey !== cronSecret) {
+  if (!cronSecret || providedKey !== cronSecret) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const db = await getDB();

@@ -1,94 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { requireAdminSecret } from "@/lib/admin-secret";
 import { calculateElo, seedElo } from "@/lib/elo";
 
 export async function POST(request: NextRequest) {
+  const authErr = await requireAdminSecret(request);
+  if (authErr) return authErr;
+
   try {
     const { env } = await getCloudflareContext({ async: true });
     const db = env.DB;
     const body = (await request.json()) as { action?: string };
-
-    if (body.action === "fix-players") {
-      const updates = [
-        ["624ef626-b13a-47c9-b23b-6fa96c237f47","ballen636@gmail.com","949-637-0773",3.0,"3.0A"],
-        ["5c591f7a-9f54-4e86-a507-787d2770f028","lopezdc67@yahoo.com","925-207-3498",3.0,"3.0C"],
-        ["8dbc87ab-f415-40ee-9fed-e7857445f998","hannes.magnusson@gmail.com","650-666-9246",3.0,"3.0C"],
-        ["92e1a868-573c-487e-93c6-3f84488a222c","joegmoss@hotmail.com","510-282-8250",2.5,"2.5A"],
-        ["ad74e6ea-ffcc-419f-8c15-3dcdf366d490","jzdarko@gmail.com","805-234-4899",3.0,"3.0C"],
-        ["acd5a9ec-d224-466a-a6d1-7b9b28aa961b","kirk.martinez@gmail.com","925-314-5089",2.5,"2.5S"],
-        ["5a61d2ac-cd7c-4f10-8716-f3fc6f3351fa","mccabe83@gmail.com","661-433-3731",3.0,"3.0C"],
-        ["e200b62b-e557-47ba-98e8-1dca23d23e0e","shimonmodi@gmail.com","765-409-6634",3.0,"3.0C"],
-        ["bbbf95a3-2773-4035-8b20-99354ab33a0d","srivemuri3@gmail.com","510-338-8768",3.0,"3.0C"],
-        ["269a7039-5e49-47b3-a621-d4c40f3f40b5","travisgilkey@gmail.com","925-787-2196",3.0,"3.0C"],
-        ["eb9d8bcb-ad69-43fc-87c2-d7024060185a","tristanpr@gmail.com","310-749-5634",2.5,"2.5C"],
-        ["a1b2c3d4-1111-4000-8000-000000000001","juangarrahan@comcast.net","925-381-1652",3.0,"3.0C"],
-        ["a1b2c3d4-1111-4000-8000-000000000002","guyhocker@gmail.com","310-809-1403",3.0,"3.0S"],
-        ["a1b2c3d4-1111-4000-8000-000000000003","kelly@westernstatestool.com","510-714-6117",3.0,"3.0C"],
-        ["a1b2c3d4-1111-4000-8000-000000000004","jeffreykmoran@gmail.com","925-708-1826",3.0,"3.0C"],
-        ["a1b2c3d4-1111-4000-8000-000000000005","bravebhaven@gmail.com","650-305-6380",3.0,"3.0C"],
-        ["a1b2c3d4-1111-4000-8000-000000000006","jmmmat@sbcglobal.net","510-520-1515",3.0,"3.0C"],
-        ["a1b2c3d4-2222-4000-8000-000000000001","unknown+sandeep.b@framers.app",null,3.0,"3.0S"],
-        ["a1b2c3d4-2222-4000-8000-000000000002","unknown+tim.gilliss@framers.app",null,2.5,"2.5S"],
-        ["a1b2c3d4-2222-4000-8000-000000000003","unknown+kirill.mazin@framers.app",null,3.0,"3.0S"],
-      ] as const;
-      const updates2 = [
-        ["a1b2c3d4-2222-4000-8000-000000000004","unknown+aaron.kaplan@framers.app",null,3.0,"3.0C"],
-        ["a1b2c3d4-2222-4000-8000-000000000005","unknown+tom.schroder@framers.app",null,2.5,"2.5S"],
-      ] as const;
-
-      await db.batch(updates.map(([id,email,phone,rating,type]) =>
-        db.prepare("UPDATE players SET email=?, phone=?, ntrp_rating=?, ntrp_type=? WHERE id=?").bind(email,phone,rating,type,id)
-      ));
-      await db.batch(updates2.map(([id,email,phone,rating,type]) =>
-        db.prepare("UPDATE players SET email=?, phone=?, ntrp_rating=?, ntrp_type=? WHERE id=?").bind(email,phone,rating,type,id)
-      ));
-
-      const newPlayers = [
-        ["a1b2c3d4-3333-4000-8000-000000000001","Stefano Mazzoni","stefanoheidi@gmail.com",3.0,"3.0S"],
-        ["a1b2c3d4-3333-4000-8000-000000000002","Jun Alarcon","alarconjun@yahoo.com",3.0,"3.0S"],
-      ] as const;
-      for (const [id,name,email,rating,type] of newPlayers) {
-        const exists = await db.prepare("SELECT id FROM players WHERE id=?").bind(id).first();
-        if (!exists) {
-          await db.prepare("INSERT INTO players (id,name,email,ntrp_rating,ntrp_type) VALUES (?,?,?,?,?)").bind(id,name,email,rating,type).run();
-          await db.prepare("INSERT OR IGNORE INTO team_memberships (player_id,team_id,role) VALUES (?,'team-junior-framers-2026','player')").bind(id).run();
-        }
-      }
-
-      const players = (await db.prepare("SELECT id,name,email,phone,ntrp_rating,ntrp_type FROM players ORDER BY name").all()).results;
-      return NextResponse.json({ ok: true, updated: updates.length + updates2.length, newPlayers: newPlayers.length, players });
-    }
-
-    if (body.action === "import-2025") {
-      const { HISTORICAL_2025_MATCHES } = await import("@/lib/historical-2025-data");
-      await db.prepare("DELETE FROM league_match_results WHERE match_id LIKE 'hist-2025-%'").run();
-      await db.prepare("DELETE FROM league_matches WHERE id LIKE 'hist-2025-%'").run();
-
-      for (let i = 0; i < HISTORICAL_2025_MATCHES.length; i++) {
-        const match = HISTORICAL_2025_MATCHES[i];
-        const matchId = `hist-2025-${String(i + 1).padStart(2, "0")}`;
-        const isHome = match.homeTeam === "us" ? 1 : 0;
-        const result = match.ourScore > match.theirScore ? "win" : "loss";
-
-        await db.prepare(
-          `INSERT INTO league_matches (id, team_id, round_number, opponent_team, match_date, is_home, team_result, team_score, status) VALUES (?,?,?,?,?,?,?,?,'completed')`
-        ).bind(matchId, match.teamId, i + 1, match.opponent, match.date, isHome, result, `${match.ourScore}-${match.theirScore}`).run();
-
-        for (let li = 0; li < match.lines.length; li++) {
-          const line = match.lines[li];
-          const pos = `${line.type === "singles" ? "S" : "D"}${line.position}`;
-          const ourSide = match.homeTeam === "us" ? "home" : "visitor";
-          const won = line.winReversed ? 0 : (ourSide === line.winner ? 1 : 0);
-          const players = (ourSide === "home" ? line.homePlayers : line.visitorPlayers).filter((p): p is string => p !== null);
-          const ourScores = line.score.split(",").map(s => { const p = s.trim().split("-").map(Number); return ourSide === "home" ? p[0] : p[1]; }).join(",");
-          const oppScores = line.score.split(",").map(s => { const p = s.trim().split("-").map(Number); return ourSide === "home" ? p[1] : p[0]; }).join(",");
-          await db.prepare(
-            `INSERT INTO league_match_results (id, match_id, position, won, our_score, opp_score, player1_id, player2_id) VALUES (?,?,?,?,?,?,?,?)`
-          ).bind(`${matchId}-${li+1}`, matchId, pos, won, ourScores, oppScores, players[0] ?? null, players[1] ?? null).run();
-        }
-      }
-      return NextResponse.json({ ok: true, imported: HISTORICAL_2025_MATCHES.length });
-    }
 
     if (body.action === "recalc-elo") {
       const players = (await db.prepare("SELECT id, ntrp_rating FROM players").all<{ id: string; ntrp_rating: number }>()).results;
@@ -552,19 +474,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, recorded: payers.length });
     }
 
-    if (body.action === "matt-junior-cocaptain") {
-      const mattId = "5a61d2ac-cd7c-4f10-8716-f3fc6f3351fa";
-      const teamId = "team-junior-framers-2026";
-      const existing = await db.prepare("SELECT role FROM team_memberships WHERE player_id = ? AND team_id = ?").bind(mattId, teamId).first<{ role: string }>();
-      if (existing) {
-        await db.prepare("UPDATE team_memberships SET role = 'co-captain' WHERE player_id = ? AND team_id = ?").bind(mattId, teamId).run();
-        return NextResponse.json({ ok: true, action: "updated", previousRole: existing.role });
-      } else {
-        await db.prepare("INSERT INTO team_memberships (player_id, team_id, role) VALUES (?, ?, 'co-captain')").bind(mattId, teamId).run();
-        return NextResponse.json({ ok: true, action: "inserted" });
-      }
-    }
-
     if (body.action === "tr-backfill") {
       const teamName = (body as { teamName?: string }).teamName;
       const isOwn = (body as { isOwn?: boolean }).isOwn ?? false;
@@ -688,24 +597,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, log });
     }
 
-    if (body.action === "clear-junior-schedule") {
-      const teamId = "team-junior-framers-2026";
-      const matchIds = (await db.prepare("SELECT id FROM league_matches WHERE team_id = ?").bind(teamId).all<{ id: string }>()).results.map((r) => r.id);
-      if (matchIds.length === 0) return NextResponse.json({ ok: true, deleted: 0, message: "No matches to clear" });
-
-      for (const mid of matchIds) {
-        await db.prepare("DELETE FROM availability WHERE match_id = ?").bind(mid).run();
-        const lineup = await db.prepare("SELECT id FROM lineups WHERE match_id = ?").bind(mid).first<{ id: string }>();
-        if (lineup) {
-          await db.prepare("DELETE FROM lineup_slots WHERE lineup_id = ?").bind(lineup.id).run();
-          await db.prepare("DELETE FROM lineups WHERE id = ?").bind(lineup.id).run();
-        }
-        await db.prepare("DELETE FROM league_match_results WHERE match_id = ?").bind(mid).run();
-      }
-      await db.prepare("DELETE FROM league_matches WHERE team_id = ?").bind(teamId).run();
-      return NextResponse.json({ ok: true, deleted: matchIds.length });
-    }
-
     if (body.action === "sync-team") {
       const { syncUstaTeam } = await import("@/lib/usta-sync");
       const slug = (body as { teamSlug?: string }).teamSlug ?? "junior-framers-2026";
@@ -725,7 +616,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authErr = await requireAdminSecret(request);
+  if (authErr) return authErr;
+
   try {
     const { env } = await getCloudflareContext({ async: true });
     const db = env.DB;

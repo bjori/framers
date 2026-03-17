@@ -19,10 +19,18 @@ alwaysApply: false
 
 - `RESEND_API_KEY` — Resend email API key
 - `RESEND_WEBHOOK_SECRET` — Svix signing secret for webhook verification
-- `CRON_SECRET` — shared secret between cron worker and `/api/cron` endpoint
+- `CRON_SECRET` — shared secret between cron worker and `/api/cron` endpoint (required; cron fails closed if unset)
+- `ADMIN_SECRET` — protects `/api/debug`, `/api/seed`, `/api/setup` (when unauthenticated). Required for these endpoints.
 - `OPENAI_API_KEY` — GPT-4o-mini for AI commentary, player form summaries, match predictions
 
 `CRON_SECRET` is also set on `framers-cron` worker.
+
+**Protected endpoints** (require `ADMIN_SECRET`): Pass via `Authorization: Bearer <secret>`, `X-Admin-Secret: <secret>`, or `?key=<secret>`:
+```bash
+curl -sk -X POST "https://framers.app/api/debug" -H "Authorization: Bearer $ADMIN_SECRET" -H "Content-Type: application/json" -d '{"action":"sync-team"}'
+curl -sk "https://framers.app/api/seed?key=$ADMIN_SECRET"
+curl -sk "https://framers.app/api/setup?key=$ADMIN_SECRET"
+```
 
 ## Commit, Push & Deploy (Agent Workflow)
 
@@ -74,9 +82,9 @@ npx wrangler deploy .open-next/worker.js # deploy (reads wrangler.jsonc)
 
 See "Commit, Push & Deploy" above for the full workflow including git push with SSH key.
 
-After deploying schema changes, run migrations via:
+After deploying schema changes, run migrations via (requires ADMIN_SECRET if not logged in as admin):
 ```bash
-curl -sk "https://greenbrook-framers.hannes-magnusson.workers.dev/api/setup"
+curl -sk "https://framers.app/api/setup?key=$ADMIN_SECRET"
 ```
 
 ## D1 Queries from CLI
