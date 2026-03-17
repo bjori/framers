@@ -242,17 +242,17 @@ export default function AnalyticsDashboard() {
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Daily Activity (30 Days)</h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Event count per day, oldest → newest (left to right).</p>
             <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-              <div className="flex items-end gap-1 h-32">
+              <div className="flex items-stretch gap-1 h-32">
                 {fullDaily.map((d) => {
                       const pct = (d.cnt / maxDaily) * 100;
                       return (
                         <div
                           key={d.day}
-                          className="flex-1 group relative"
+                          className="flex-1 min-w-0 flex flex-col justify-end group relative"
                           title={`${d.day}: ${d.cnt} events`}
                         >
                           <div
-                            className="w-full bg-sky-500 dark:bg-sky-400 rounded-t transition-all"
+                            className="w-full bg-sky-500 dark:bg-sky-400 rounded-t transition-all shrink-0"
                             style={{ height: `${Math.max(pct, 3)}%` }}
                           />
                           <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:block bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
