@@ -114,7 +114,10 @@ export default function CalendarSubscribe() {
             </div>
           </details>
           <p className="text-xs text-slate-400 dark:text-slate-500">
-            Your calendar will auto-refresh with lineup changes.
+            Your calendar will auto-refresh with lineup changes.{" "}
+            <a href={feedUrl} target="_blank" rel="noopener noreferrer" className="text-primary-light hover:underline">
+              Verify feed
+            </a>
           </p>
         </div>
       ) : (

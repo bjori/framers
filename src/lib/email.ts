@@ -66,7 +66,7 @@ export function emailTemplate(content: string, options?: {
     ? `<td style="width: 16px;"></td><td style="border-radius: 8px; background: #dc2626;"><a href="${options.secondaryCtaUrl}" style="display: inline-block; padding: 14px 28px; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 15px;">${options.secondaryCtaLabel ?? "Cancel"}</a></td>`
     : "";
   const cta = options?.ctaUrl
-    ? `<table role="presentation" style="margin: 24px 0;"><tr><td style="border-radius: 8px; background: #0c4a6e;"><a href="${options.ctaUrl}" style="display: inline-block; padding: 14px 28px; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 15px;">${options.ctaLabel ?? "Open App"}</a></td>${secondaryBtn}</tr></table>`
+    ? `<center style="margin: 24px 0;"><table role="presentation" align="center"><tr><td style="border-radius: 8px; background: #0c4a6e;"><a href="${options.ctaUrl}" style="display: inline-block; padding: 14px 28px; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 15px;">${options.ctaLabel ?? "Open App"}</a></td>${secondaryBtn}</tr></table></center>`
     : "";
   const footer = options?.footerNote
     ? `<p style="font-size: 12px; color: #94a3b8; margin-top: 8px;">${options.footerNote}</p>`

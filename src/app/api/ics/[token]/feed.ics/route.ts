@@ -257,7 +257,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
     });
   }
 
-  track("calendar_fetched", { playerId: player.id });
+  await track("calendar_fetched", { playerId: player.id });
 
   return new NextResponse(cal.toString(), {
     headers: {
