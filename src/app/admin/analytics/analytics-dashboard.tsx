@@ -36,12 +36,19 @@ interface CalendarSubscriber {
   last_fetched_at: string;
 }
 
+interface DailyByEvent {
+  day: string;
+  event: string;
+  cnt: number;
+}
+
 interface AnalyticsData {
   summary7d: EventSummary[];
   summary30d: EventSummary[];
   recentEvents: RecentEvent[];
   loginAttempts: LoginAttempt[];
   dailyActivity: DailyActivity[];
+  dailyByEvent: DailyByEvent[];
   topUsers: TopUser[];
   calendarSubscribers: CalendarSubscriber[];
 }
@@ -104,6 +111,37 @@ const EVENT_COLORS: Record<string, string> = {
   admin_impersonate: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
   preferences_updated: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   calendar_fetched: "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300",
+};
+
+// Solid bar colors for stacked chart (event type → Tailwind bg class)
+const EVENT_BAR_COLORS: Record<string, string> = {
+  login_requested: "bg-blue-500",
+  login_failed: "bg-red-500",
+  login_success: "bg-green-500",
+  login_verify_failed: "bg-orange-500",
+  rsvp_league: "bg-sky-500",
+  rsvp_practice: "bg-indigo-500",
+  score_submitted: "bg-emerald-500",
+  email_sent: "bg-slate-500",
+  email_failed: "bg-red-600",
+  "email.delivered": "bg-teal-500",
+  "email.opened": "bg-violet-500",
+  "email.clicked": "bg-fuchsia-500",
+  "email.bounced": "bg-red-700",
+  "email.complained": "bg-rose-500",
+  lineup_generated: "bg-amber-500",
+  lineup_saved: "bg-amber-600",
+  lineup_confirmed: "bg-green-600",
+  lineup_confirmed_player: "bg-green-700",
+  lineup_declined_player: "bg-red-500",
+  match_details_edited: "bg-cyan-500",
+  usta_synced: "bg-purple-500",
+  elo_recalculated: "bg-purple-600",
+  payment_recorded: "bg-emerald-600",
+  announcement_sent: "bg-pink-500",
+  admin_impersonate: "bg-yellow-500",
+  preferences_updated: "bg-slate-600",
+  calendar_fetched: "bg-teal-500",
 };
 
 function formatDetail(event: string, detail: string | null): string {
@@ -188,6 +226,12 @@ export default function AnalyticsDashboard() {
 
   // Fill in full 30-day range (API returns only days with events)
   const dailyMap = new Map((data.dailyActivity ?? []).map((d) => [d.day, d.cnt]));
+  const dayByEventMap = new Map<string, { event: string; cnt: number }[]>();
+  for (const row of data.dailyByEvent ?? []) {
+    const arr = dayByEventMap.get(row.day) ?? [];
+    arr.push({ event: row.event, cnt: row.cnt });
+    dayByEventMap.set(row.day, arr);
+  }
   const fullDaily: { day: string; cnt: number }[] = [];
   for (let i = 29; i >= 0; i--) {
     const d = new Date();
@@ -196,6 +240,7 @@ export default function AnalyticsDashboard() {
     fullDaily.push({ day, cnt: dailyMap.get(day) ?? 0 });
   }
   const maxDaily = Math.max(...fullDaily.map((d) => d.cnt), 1);
+  const eventTypesInChart = [...new Set((data.dailyByEvent ?? []).map((r) => r.event))].slice(0, 10);
 
   return (
     <div className="space-y-8">
@@ -237,31 +282,59 @@ export default function AnalyticsDashboard() {
             </div>
           </section>
 
-          {/* Daily chart (simple bar) */}
+          {/* Daily chart (stacked by event type) */}
           <section>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Daily Activity (30 Days)</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Event count per day, oldest → newest (left to right).</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+              Total events per day, stacked by type. Oldest → newest (left to right). Hover for breakdown.
+            </p>
             <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
               <div className="flex items-stretch gap-1 h-32">
                 {fullDaily.map((d) => {
-                      const pct = (d.cnt / maxDaily) * 100;
-                      return (
-                        <div
-                          key={d.day}
-                          className="flex-1 min-w-0 flex flex-col justify-end group relative"
-                          title={`${d.day}: ${d.cnt} events`}
-                        >
-                          <div
-                            className="w-full bg-sky-500 dark:bg-sky-400 rounded-t transition-all shrink-0"
-                            style={{ height: `${Math.max(pct, 3)}%` }}
-                          />
-                          <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:block bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
-                            {d.day}: {d.cnt}
-                          </div>
-                        </div>
-                      );
-                    })}
+                  const pct = (d.cnt / maxDaily) * 100;
+                  const breakdown = [...(dayByEventMap.get(d.day) ?? [])].sort((a, b) => b.cnt - a.cnt);
+                  const tooltipLines = [d.day, `${d.cnt} total`, ...breakdown.slice(0, 8).map((b) => `${EVENT_LABELS[b.event] ?? b.event}: ${b.cnt}`)];
+                  if (breakdown.length > 8) tooltipLines.push(`+${breakdown.length - 8} more`);
+                  return (
+                    <div
+                      key={d.day}
+                      className="flex-1 min-w-0 flex flex-col justify-end group relative"
+                    >
+                      <div
+                        className="w-full flex flex-col-reverse rounded-t overflow-hidden shrink-0"
+                        style={{ height: `${Math.max(pct, 3)}%` }}
+                      >
+                        {breakdown.length > 0 ? (
+                          breakdown.map((b) => (
+                            <div
+                              key={b.event}
+                              className={`w-full min-h-[2px] ${EVENT_BAR_COLORS[b.event] ?? "bg-slate-400"}`}
+                              style={{ height: `${(b.cnt / d.cnt) * 100}%` }}
+                            />
+                          ))
+                        ) : (
+                          <div className="w-full h-full bg-slate-200 dark:bg-slate-600" />
+                        )}
+                      </div>
+                      <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:block bg-slate-900 text-white text-xs px-2 py-1.5 rounded shadow-lg z-10 max-w-[200px]">
+                        {tooltipLines.map((line, i) => (
+                          <div key={i}>{line}</div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+              {eventTypesInChart.length > 0 && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 pt-3 border-t border-slate-200 dark:border-slate-600 text-xs text-slate-500 dark:text-slate-400">
+                  {eventTypesInChart.map((ev) => (
+                    <span key={ev} className="flex items-center gap-1.5">
+                      <span className={`w-2.5 h-2.5 rounded-sm shrink-0 ${EVENT_BAR_COLORS[ev] ?? "bg-slate-400"}`} />
+                      {EVENT_LABELS[ev] ?? ev}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
 

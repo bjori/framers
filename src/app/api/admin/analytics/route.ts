@@ -10,7 +10,7 @@ export async function GET() {
 
   const db = await getDB();
 
-  const [summary7d, summary30d, recentEvents, loginAttempts, dailyActivity, topUsers, calendarSubscribers] =
+  const [summary7d, summary30d, recentEvents, loginAttempts, dailyActivity, dailyByEvent, topUsers, calendarSubscribers] =
     await Promise.all([
       db
         .prepare(
@@ -67,6 +67,16 @@ export async function GET() {
 
       db
         .prepare(
+          `SELECT substr(created_at, 1, 10) as day, event, count(*) as cnt
+           FROM app_events
+           WHERE created_at >= strftime('%Y-%m-%dT00:00:00Z', 'now', '-30 days')
+           GROUP BY substr(created_at, 1, 10), event
+           ORDER BY day, cnt DESC`
+        )
+        .all<{ day: string; event: string; cnt: number }>(),
+
+      db
+        .prepare(
           `SELECT e.player_id, p.name as player_name, count(*) as cnt
            FROM app_events e JOIN players p ON p.id = e.player_id
            WHERE e.created_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-30 days') AND e.player_id IS NOT NULL
@@ -92,6 +102,7 @@ export async function GET() {
     recentEvents: recentEvents.results,
     loginAttempts: loginAttempts.results,
     dailyActivity: dailyActivity.results,
+    dailyByEvent: dailyByEvent.results,
     topUsers: topUsers.results,
     calendarSubscribers: calendarSubscribers.results,
   });
