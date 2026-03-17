@@ -186,7 +186,16 @@ export default function AnalyticsDashboard() {
   }
   if (!data) return <p className="text-slate-500">Failed to load analytics.</p>;
 
-  const maxDaily = Math.max(...data.dailyActivity.map((d) => d.cnt), 1);
+  // Fill in full 30-day range (API returns only days with events)
+  const dailyMap = new Map((data.dailyActivity ?? []).map((d) => [d.day, d.cnt]));
+  const fullDaily: { day: string; cnt: number }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const day = d.toISOString().slice(0, 10);
+    fullDaily.push({ day, cnt: dailyMap.get(day) ?? 0 });
+  }
+  const maxDaily = Math.max(...fullDaily.map((d) => d.cnt), 1);
 
   return (
     <div className="space-y-8">
@@ -233,11 +242,8 @@ export default function AnalyticsDashboard() {
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Daily Activity (30 Days)</h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Event count per day, oldest → newest (left to right).</p>
             <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-              {!data.dailyActivity || data.dailyActivity.length === 0 ? (
-                <p className="text-sm text-slate-500 dark:text-slate-400">No data yet.</p>
-              ) : (
-                <div className="flex items-end gap-1 h-32">
-                  {data.dailyActivity.map((d) => {
+              <div className="flex items-end gap-1 h-32">
+                {fullDaily.map((d) => {
                       const pct = (d.cnt / maxDaily) * 100;
                       return (
                         <div
@@ -255,8 +261,7 @@ export default function AnalyticsDashboard() {
                         </div>
                       );
                     })}
-                </div>
-              )}
+              </div>
             </div>
           </section>
 

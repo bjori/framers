@@ -57,21 +57,11 @@ export async function GET() {
 
       db
         .prepare(
-          `WITH RECURSIVE dates(d) AS (
-             SELECT date('now', '-29 days')
-             UNION ALL
-             SELECT date(d, '+1 day') FROM dates WHERE d < date('now')
-           ),
-           daily AS (
-             SELECT date(created_at) as day, count(*) as cnt
-             FROM app_events
-             WHERE date(created_at) >= date('now', '-30 days')
-             GROUP BY date(created_at)
-           )
-           SELECT d as day, COALESCE(daily.cnt, 0) as cnt
-           FROM dates
-           LEFT JOIN daily ON dates.d = daily.day
-           ORDER BY dates.d`
+          `SELECT substr(created_at, 1, 10) as day, count(*) as cnt
+           FROM app_events
+           WHERE created_at >= strftime('%Y-%m-%dT00:00:00Z', 'now', '-30 days')
+           GROUP BY substr(created_at, 1, 10)
+           ORDER BY day`
         )
         .all<{ day: string; cnt: number }>(),
 
