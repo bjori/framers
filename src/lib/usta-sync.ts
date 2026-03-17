@@ -115,10 +115,9 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
       const h24 = period.toUpperCase() === "PM" && hh < 12 ? hh + 12 : period.toUpperCase() === "AM" && hh === 12 ? 0 : hh;
       matchTime = `${String(h24).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
     }
-    if (matchTime) {
-      await db.prepare("UPDATE league_matches SET match_time = ?, notes = ? WHERE team_id = ? AND match_date = ?")
-        .bind(matchTime, tu.rawTime, team.id, tu.date).run();
-    }
+    // Update notes whenever USTA has posted info (confirms match); match_time only when parseable
+    await db.prepare("UPDATE league_matches SET match_time = COALESCE(?, match_time), notes = ? WHERE team_id = ? AND match_date = ?")
+      .bind(matchTime, tu.rawTime, team.id, tu.date).run();
   }
 
   // Parse schedule: extract matches with opponents and home/away

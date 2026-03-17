@@ -18,6 +18,7 @@ interface LeagueMatch {
   team_result: string | null;
   team_score: string | null;
   status: string;
+  notes: string | null;
 }
 
 interface TeamMember {
@@ -236,7 +237,12 @@ export function TeamTabs({
           {!isReadOnly && (
             <AvailabilityGrid
               roster={roster.map((p) => ({ player_id: p.player_id, name: p.name }))}
-              matches={matches.map((m) => ({ id: m.id, match_date: m.match_date, opponent_team: m.opponent_team }))}
+              matches={matches.map((m) => ({
+                id: m.id,
+                match_date: m.match_date,
+                opponent_team: m.opponent_team,
+                confirmed: !!(m.notes && m.notes.trim()),
+              }))}
               availability={availability}
               neededPlayers={neededPlayers}
               currentPlayerId={currentPlayerId}

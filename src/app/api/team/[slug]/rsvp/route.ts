@@ -44,13 +44,21 @@ export async function POST(
     return NextResponse.json({ error: "Not a team member" }, { status: 403 });
   }
 
-  // Verify the match belongs to this team
+  // Verify the match belongs to this team and is confirmed (time posted)
   const match = await db
-    .prepare("SELECT id, rsvp_deadline FROM league_matches WHERE id = ? AND team_id = ?")
+    .prepare("SELECT id, rsvp_deadline, notes FROM league_matches WHERE id = ? AND team_id = ?")
     .bind(body.matchId, team.id)
-    .first<{ id: string; rsvp_deadline: string | null }>();
+    .first<{ id: string; rsvp_deadline: string | null; notes: string | null }>();
 
   if (!match) return NextResponse.json({ error: "Match not found" }, { status: 404 });
+
+  const confirmed = !!(match.notes && match.notes.trim());
+  if (!confirmed) {
+    return NextResponse.json(
+      { error: "Match date is not confirmed yet. Availability opens once the opponent posts the time." },
+      { status: 400 }
+    );
+  }
 
   const beforeDeadline = match.rsvp_deadline
     ? new Date() < new Date(match.rsvp_deadline) ? 1 : 0

@@ -695,6 +695,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, ...result });
     }
 
+    if (body.action === "sync-tr-ratings") {
+      const { syncTrRatingsToPlayers } = await import("@/lib/tr-scouting");
+      const result = await syncTrRatingsToPlayers(db);
+      return NextResponse.json({ ok: true, ...result });
+    }
+
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

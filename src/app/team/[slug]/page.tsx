@@ -17,6 +17,7 @@ interface LeagueMatch {
   team_result: string | null;
   team_score: string | null;
   status: string;
+  notes: string | null;
 }
 
 interface TeamMember {

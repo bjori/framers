@@ -13,6 +13,7 @@ interface Match {
   id: string;
   match_date: string;
   opponent_team: string;
+  confirmed?: boolean;
 }
 
 interface Props {
@@ -206,14 +207,25 @@ export default function AvailabilityGrid({ roster, matches, availability, needed
               <th className="text-left px-3 py-2 font-medium text-slate-500 sticky left-0 bg-surface-alt z-10 min-w-[120px]">
                 Player
               </th>
-              {displayMatches.map((m) => (
-                <th key={m.id} className="px-2 py-2 text-center font-medium text-slate-500 min-w-[60px]">
-                  <div className="text-[10px] leading-tight">
-                    {new Date(m.match_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                  </div>
-                  <div className="text-[9px] text-slate-400 truncate max-w-[60px]">{m.opponent_team.split(" ")[0]}</div>
-                </th>
-              ))}
+              {displayMatches.map((m) => {
+                const confirmed = m.confirmed !== false;
+                return (
+                  <th
+                    key={m.id}
+                    className={`px-2 py-2 text-center font-medium min-w-[60px] ${
+                      confirmed ? "text-slate-500" : "text-slate-400 dark:text-slate-500"
+                    }`}
+                  >
+                    <div className="text-[10px] leading-tight">
+                      {new Date(m.match_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </div>
+                    <div className={`text-[9px] truncate max-w-[60px] ${confirmed ? "text-slate-400" : "text-slate-400/80"}`}>
+                      {m.opponent_team.split(" ")[0]}
+                      {!confirmed && " (TBD)"}
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -231,9 +243,13 @@ export default function AvailabilityGrid({ roster, matches, availability, needed
                   {displayMatches.map((m) => {
                     const key = `${p.player_id}:${m.id}`;
                     const status = avMap.get(key) ?? null;
-                    const canEdit = isMe && !!slug && isOpen(m.match_date);
+                    const confirmed = m.confirmed !== false;
+                    const canEdit = isMe && !!slug && isOpen(m.match_date) && confirmed;
                     return (
-                      <td key={m.id} className="px-2 py-1.5 text-center">
+                      <td
+                        key={m.id}
+                        className={`px-2 py-1.5 text-center ${!confirmed ? "bg-slate-50/50 dark:bg-slate-900/20" : ""}`}
+                      >
                         {canEdit ? (
                           <button
                             onClick={() => setPopover({ matchId: m.id, matchDate: m.match_date, opponent: m.opponent_team })}
@@ -243,7 +259,10 @@ export default function AvailabilityGrid({ roster, matches, availability, needed
                             {statusIcon(status)}
                           </button>
                         ) : (
-                          <span className={`inline-flex items-center justify-center w-6 h-6 rounded text-xs ${statusColor(status)}`}>
+                          <span
+                            className={`inline-flex items-center justify-center w-6 h-6 rounded text-xs ${statusColor(status)} ${!confirmed ? "opacity-60" : ""}`}
+                            title={!confirmed ? "Date not confirmed yet" : undefined}
+                          >
                             {statusIcon(status)}
                           </span>
                         )}
@@ -257,10 +276,16 @@ export default function AvailabilityGrid({ roster, matches, availability, needed
               <td className="px-3 py-1.5 font-semibold text-xs sticky left-0 bg-surface-alt z-10">Available</td>
               {displayMatches.map((m) => {
                 const yes = yesCount(m.id);
-                const color = yes >= neededPlayers ? "text-accent" : yes >= neededPlayers - 2 ? "text-warning" : "text-danger";
+                const confirmed = m.confirmed !== false;
+                const color = confirmed
+                  ? yes >= neededPlayers ? "text-accent" : yes >= neededPlayers - 2 ? "text-warning" : "text-danger"
+                  : "text-slate-400 dark:text-slate-500";
                 return (
-                  <td key={m.id} className={`px-2 py-1.5 text-center font-bold text-xs ${color}`}>
-                    {yes}/{roster.length}
+                  <td
+                    key={m.id}
+                    className={`px-2 py-1.5 text-center font-bold text-xs ${color} ${!confirmed ? "bg-slate-50/50 dark:bg-slate-900/20" : ""}`}
+                  >
+                    {confirmed ? `${yes}/${roster.length}` : "—"}
                   </td>
                 );
               })}

@@ -3,7 +3,17 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function MatchRsvp({ slug, matchId, currentStatus }: { slug: string; matchId: string; currentStatus: string | null }) {
+export function MatchRsvp({
+  slug,
+  matchId,
+  currentStatus,
+  confirmed = true,
+}: {
+  slug: string;
+  matchId: string;
+  currentStatus: string | null;
+  confirmed?: boolean;
+}) {
   const [status, setStatus] = useState(currentStatus);
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
@@ -20,6 +30,17 @@ export function MatchRsvp({ slug, matchId, currentStatus }: { slug: string; matc
       router.refresh();
     }
     setSubmitting(false);
+  }
+
+  if (!confirmed) {
+    return (
+      <section className="bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-800 p-4">
+        <h2 className="text-sm font-semibold mb-2 text-slate-500 dark:text-slate-400">Your RSVP</h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Availability opens once the opponent posts the match time.
+        </p>
+      </section>
+    );
   }
 
   return (

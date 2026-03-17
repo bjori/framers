@@ -256,7 +256,12 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
 
       {/* My RSVP — hidden when player is in the confirmed lineup (use ack buttons instead) */}
       {session && !isPast && !myLineupSlot && (
-        <MatchRsvp slug={slug} matchId={id} currentStatus={myRsvp} />
+        <MatchRsvp
+          slug={slug}
+          matchId={id}
+          currentStatus={myRsvp}
+          confirmed={!!(match.notes && match.notes.trim())}
+        />
       )}
 
       {/* Line Results */}

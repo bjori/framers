@@ -30,6 +30,7 @@ interface UpcomingLeagueMatch {
   match_time: string | null;
   location: string | null;
   is_home: number;
+  notes: string | null;
   rsvp_status: string | null;
   lineup_status: string | null;
   lineup_position: string | null;
@@ -111,7 +112,7 @@ export default async function DashboardPage() {
         .prepare(
           `SELECT lm.id as match_id, te.name as team_name, te.slug as team_slug,
                   lm.opponent_team, lm.match_date, lm.match_time,
-                  lm.location, lm.is_home,
+                  lm.location, lm.is_home, lm.notes,
                   a.status as rsvp_status,
                   CASE
                     WHEN ls.is_alternate = -1 THEN 'withdrawn'
@@ -135,7 +136,10 @@ export default async function DashboardPage() {
         .all<UpcomingLeagueMatch>()
     ).results;
 
-    pendingRsvpCount = leagueMatches.filter((m) => !m.rsvp_status).length;
+    pendingRsvpCount = leagueMatches.filter((m) => {
+      const confirmed = !!(m.notes && m.notes.trim());
+      return confirmed && !m.rsvp_status;
+    }).length;
 
     unscoredMatches = (
       await db
@@ -333,8 +337,9 @@ export default async function DashboardPage() {
               }
               if (ev.kind === "league") {
                 const m = ev.data as UpcomingLeagueMatch;
+                const confirmed = !!(m.notes && m.notes.trim());
                 const faded = m.rsvp_status === "no" && !m.lineup_status;
-                const needsRsvp = !m.rsvp_status;
+                const needsRsvp = confirmed && !m.rsvp_status;
                 return (
                   <div
                     key={`l-${m.match_id}`}
@@ -385,12 +390,14 @@ export default async function DashboardPage() {
                       </div>
                     </Link>
                     {!needsRsvp && (
-                      <div className="text-right pr-3 shrink-0">
+                      <div className={`text-right pr-3 shrink-0 ${!confirmed ? "opacity-75" : ""}`}>
                         <p className="text-xs font-semibold">
                           {new Date(m.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                         </p>
                         <p className="text-[11px] text-slate-400">
-                          {m.match_time ? fmtTime(m.match_time) : ""}{m.location ? ` · ${m.location}` : ""}
+                          {confirmed
+                            ? (m.match_time ? fmtTime(m.match_time) : "") + (m.location ? ` · ${m.location}` : "")
+                            : "Date TBD"}
                         </p>
                       </div>
                     )}

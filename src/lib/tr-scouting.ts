@@ -212,6 +212,50 @@ export async function quickScoutOpponent(
   return getCachedTeam(opponentTeam);
 }
 
+// TennisRecord may use different name formats than our players table (e.g. "Bradley" vs "Brad")
+const TR_NAME_VARIANTS: Record<string, string[]> = {
+  "Bradley Allen": ["Brad Allen"],
+  "Brad Allen": ["Bradley Allen"],
+};
+
+function namesToTry(trName: string): string[] {
+  const variants = TR_NAME_VARIANTS[trName];
+  return variants ? [trName, ...variants] : [trName];
+}
+
+/** Sync TR ratings from tr_players cache to players table. Handles name variants. */
+export async function syncTrRatingsToPlayers(db: D1Database): Promise<{ updated: number; skipped: number }> {
+  const rows = (
+    await db
+      .prepare(
+        "SELECT player_name, tr_rating, tr_dynamic_rating FROM tr_players WHERE tr_rating IS NOT NULL OR tr_dynamic_rating IS NOT NULL"
+      )
+      .all<{ player_name: string; tr_rating: number | null; tr_dynamic_rating: number | null }>()
+  ).results;
+
+  let updated = 0;
+  let skipped = 0;
+  for (const p of rows) {
+    const rating = p.tr_dynamic_rating ?? p.tr_rating;
+    if (rating == null) continue;
+    const names = namesToTry(p.player_name);
+    let matched = false;
+    for (const ourName of names) {
+      const r = await db
+        .prepare("UPDATE players SET tennisrecord_rating = ? WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))")
+        .bind(rating, ourName)
+        .run();
+      if (r.meta.changes > 0) {
+        updated++;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) skipped++;
+  }
+  return { updated, skipped };
+}
+
 export async function scoutOwnTeam(
   teamName: string,
   year: number,
@@ -221,15 +265,7 @@ export async function scoutOwnTeam(
 
   // Sync TR ratings to our players table
   const db = await getDB();
-  for (const p of players) {
-    if (p.tr_dynamic_rating || p.tr_rating) {
-      const rating = p.tr_dynamic_rating ?? p.tr_rating;
-      await db
-        .prepare("UPDATE players SET tennisrecord_rating = ? WHERE LOWER(name) = LOWER(?)")
-        .bind(rating, p.player_name)
-        .run();
-    }
-  }
+  await syncTrRatingsToPlayers(db);
 }
 
 // ── Head-to-Head from Cache ────────────────────────────────────────
