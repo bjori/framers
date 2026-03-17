@@ -20,14 +20,22 @@ Manages USTA league teams, internal tournaments, practices, ELO ratings, and pay
 - **Cron**: Separate `framers-cron` Cloudflare Worker triggers `/api/cron` daily at 9 AM Pacific
 - **Domain**: `framers.app` — Cloudflare DNS + custom domain on worker
 
-## Deployment
+## Commit, Push & Deploy
 
-```bash
-npx opennextjs-cloudflare build    # builds to .open-next/
-npx wrangler deploy .open-next/worker.js   # deploys to greenbrook-framers worker
-```
-Do NOT use `--name` flag with `wrangler deploy` — it must use `wrangler.jsonc` config.
-Secrets are managed via `npx wrangler secret put SECRET_NAME --name greenbrook-framers`.
+When committing, pushing, or deploying:
+
+1. **Commit** — Stage and commit changes as usual.
+2. **Push** — Always use the private GitHub SSH key (required for `bjori/framers`):
+   ```bash
+   GIT_SSH_COMMAND="ssh -i /Users/hannes.magnusson/.ssh/id_ed25519-private-github -o IdentitiesOnly=yes" git push
+   ```
+3. **Deploy** — Build then deploy (do NOT use `--name` flag):
+   ```bash
+   npx opennextjs-cloudflare build
+   npx wrangler deploy .open-next/worker.js
+   ```
+
+Secrets: `npx wrangler secret put SECRET_NAME --name greenbrook-framers`.
 
 ## Key Conventions
 

@@ -24,13 +24,28 @@ alwaysApply: false
 
 `CRON_SECRET` is also set on `framers-cron` worker.
 
-## Git Push
+## Commit, Push & Deploy (Agent Workflow)
 
-Always push using the private GitHub SSH key:
+When an agent commits, pushes, or deploys:
 
-```bash
-GIT_SSH_COMMAND="ssh -i ~/.ssh/id_ed25519-private-github -o IdentitiesOnly=yes" git push
-```
+1. **Commit**
+   ```bash
+   git add <files>
+   git commit -m "Descriptive message"
+   ```
+
+2. **Push** — Required: use the private GitHub SSH key (default identity lacks access to `bjori/framers`):
+   ```bash
+   GIT_SSH_COMMAND="ssh -i /Users/hannes.magnusson/.ssh/id_ed25519-private-github -o IdentitiesOnly=yes" git push
+   ```
+
+3. **Deploy**
+   ```bash
+   npx opennextjs-cloudflare build
+   npx wrangler deploy .open-next/worker.js
+   ```
+
+Never use `--name` with `wrangler deploy` — it ignores `wrangler.jsonc` and creates a worker without secrets.
 
 ## Network Quirks
 
@@ -57,7 +72,7 @@ npx opennextjs-cloudflare build          # Next.js → Cloudflare worker bundle
 npx wrangler deploy .open-next/worker.js # deploy (reads wrangler.jsonc)
 ```
 
-Never use `--name` flag — it ignores `wrangler.jsonc` and creates a new worker without secrets.
+See "Commit, Push & Deploy" above for the full workflow including git push with SSH key.
 
 After deploying schema changes, run migrations via:
 ```bash
