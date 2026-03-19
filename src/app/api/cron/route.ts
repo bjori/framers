@@ -6,6 +6,7 @@ import { sendEmailBatch, emailTemplate, matchThreadHeaders, listSender } from "@
 import { syncUstaTeam } from "@/lib/usta-sync";
 import { recalculateElo } from "@/lib/elo-recalc";
 import { gatherDigestData, generateDigestNarrative, buildDigestEmailHtml } from "@/lib/tournament-digest";
+import { detectMilestones, generateMilestoneDigestQuip, type Milestone } from "@/lib/tournament-milestones";
 import { generatePreMatchCommentary, generatePostMatchCommentary } from "@/lib/league-commentary";
 
 const POSITION_LABELS: Record<string, string> = {
@@ -785,6 +786,81 @@ export async function GET(request: NextRequest) {
     await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
       .bind("match_results_emailed", match.id, now.toISOString()).run();
     log.push(`[Match results] ${match.team_name} vs ${match.opponent_team} (${match.team_score}): sent to ${teamMembers.length} members`);
+  }
+
+  // 6.5. Daily tournament milestone digest — broadcast notable outcomes (first win, upset, last-place secured)
+  const oneDayAgo = new Date(now.getTime() - 24 * 86400000).toISOString();
+  const recentTournamentMatches = (
+    await db.prepare(
+      `SELECT tm.id as match_id, t.slug as tournament_slug, t.name as tournament_name
+       FROM tournament_matches tm
+       JOIN tournaments t ON t.id = tm.tournament_id
+       WHERE t.status = 'active' AND tm.status = 'completed'
+         AND tm.updated_at >= ? AND tm.bye = 0`
+    )
+    .bind(oneDayAgo)
+    .all<{ match_id: string; tournament_slug: string; tournament_name: string }>()
+  ).results;
+
+  const milestonesByTournament = new Map<string, { matchId: string; milestones: Milestone[] }[]>();
+  for (const m of recentTournamentMatches) {
+    const milestones = await detectMilestones(db, m.match_id, m.tournament_slug);
+    if (milestones.length > 0) {
+      const arr = milestonesByTournament.get(m.tournament_slug) ?? [];
+      arr.push({ matchId: m.match_id, milestones });
+      milestonesByTournament.set(m.tournament_slug, arr);
+    }
+  }
+
+  for (const [slug, items] of milestonesByTournament) {
+    const digestDedup = `${slug}|${today}`;
+    const alreadySent = (await db.prepare(
+      "SELECT COUNT(*) as cnt FROM app_events WHERE event = 'tournament_daily_milestone' AND detail = ?"
+    ).bind(digestDedup).first<{ cnt: number }>())?.cnt ?? 0;
+    if (alreadySent > 0) continue;
+
+    const tournamentName = (await db.prepare("SELECT name FROM tournaments WHERE slug = ?").bind(slug).first<{ name: string }>())?.name ?? slug;
+    const participants = (await db.prepare(
+      `SELECT p.email FROM tournament_participants tp
+       JOIN players p ON p.id = tp.player_id
+       WHERE tp.tournament_id = (SELECT id FROM tournaments WHERE slug = ?)`
+    ).bind(slug).all<{ email: string }>()).results;
+
+    const allMilestones = items.flatMap(({ milestones }) => milestones);
+    const quipHtml = await generateMilestoneDigestQuip(allMilestones, tournamentName);
+
+    const milestoneBlocks = items.flatMap(({ matchId, milestones }) =>
+      milestones.map((ms) => {
+        const matchUrl = `https://framers.app/tournament/${slug}/match/${matchId}`;
+        const scorePart = ms.score ? ` (${ms.score})` : "";
+        return `<p style="margin: 12px 0; font-size: 15px;"><strong>${ms.headline}</strong>${scorePart}</p>
+         <p style="margin: 0 0 16px 0; font-size: 13px; color: #64748b;"><a href="${matchUrl}" style="color: #0369a1;">View match</a></p>`;
+      })
+    );
+
+    const content = `
+      ${quipHtml}
+      <p>Quick highlights from yesterday&rsquo;s action:</p>
+      ${milestoneBlocks.join("")}
+    `;
+
+    const digestSender = listSender(slug, tournamentName);
+    const subject = `${tournamentName} — Yesterday&rsquo;s Highlights`;
+    const batch = participants.map((p) => ({
+      to: p.email,
+      subject,
+      ...digestSender,
+      html: emailTemplate(content, {
+        heading: tournamentName,
+        ctaUrl: `https://framers.app/tournament/${slug}`,
+        ctaLabel: "View Tournament",
+      }),
+    }));
+
+    await sendEmailBatch(batch);
+    await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+      .bind("tournament_daily_milestone", digestDedup, now.toISOString()).run();
+    log.push(`[Milestone digest] ${slug}: sent to ${participants.length} participants`);
   }
 
   // 7. Weekly tournament digest — Sundays only

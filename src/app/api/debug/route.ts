@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { requireAdminSecret } from "@/lib/admin-secret";
 import { calculateElo, seedElo } from "@/lib/elo";
+import { sendEmailBatch, emailTemplate, listSender } from "@/lib/email";
+import { detectMilestones, generateMilestoneDigestQuip } from "@/lib/tournament-milestones";
 
 export async function POST(request: NextRequest) {
   const authErr = await requireAdminSecret(request);
@@ -608,6 +610,120 @@ export async function POST(request: NextRequest) {
       const { syncTrRatingsToPlayers } = await import("@/lib/tr-scouting");
       const result = await syncTrRatingsToPlayers(db);
       return NextResponse.json({ ok: true, ...result });
+    }
+
+    if (body.action === "send-milestone-digest") {
+      const matchId = (body as { matchId?: string }).matchId;
+      const listOnly = (body as { list?: boolean }).list;
+
+      if (!matchId && !listOnly) return NextResponse.json({ error: "matchId required (or use list: true to find matches)" }, { status: 400 });
+
+      if (listOnly && !matchId) {
+        const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+        const matches = (await db
+          .prepare(
+            `SELECT tm.id as match_id, t.slug as tournament_slug, t.name as tournament_name,
+                    p1.name as p1_name, p2.name as p2_name, tm.updated_at
+             FROM tournament_matches tm
+             JOIN tournaments t ON t.id = tm.tournament_id
+             LEFT JOIN tournament_participants tp1 ON tp1.id = tm.participant1_id
+             LEFT JOIN players p1 ON p1.id = tp1.player_id
+             LEFT JOIN tournament_participants tp2 ON tp2.id = tm.participant2_id
+             LEFT JOIN players p2 ON p2.id = tp2.player_id
+             WHERE t.status = 'active' AND tm.status = 'completed'
+               AND tm.updated_at >= ? AND tm.bye = 0
+             ORDER BY tm.updated_at DESC`
+          )
+          .bind(sevenDaysAgo)
+          .all<{ match_id: string; tournament_slug: string; tournament_name: string; p1_name: string; p2_name: string; updated_at: string }>()).results;
+
+        const withMilestones: { match_id: string; tournament_slug: string; p1_name: string; p2_name: string; updated_at: string; milestones: string[] }[] = [];
+        for (const m of matches) {
+          const milestones = await detectMilestones(db, m.match_id, m.tournament_slug);
+          if (milestones.length > 0) {
+            withMilestones.push({
+              match_id: m.match_id,
+              tournament_slug: m.tournament_slug,
+              p1_name: m.p1_name,
+              p2_name: m.p2_name,
+              updated_at: m.updated_at,
+              milestones: milestones.map((x) => x.headline),
+            });
+          }
+        }
+        return NextResponse.json({
+          ok: true,
+          matches: withMilestones,
+          hint: "Use matchId from a match above to send: { action: 'send-milestone-digest', matchId: '...' }",
+        });
+      }
+
+      const mid = matchId!;
+      const match = await db
+        .prepare(
+          `SELECT tm.id, t.slug as tournament_slug, t.name as tournament_name
+           FROM tournament_matches tm
+           JOIN tournaments t ON t.id = tm.tournament_id
+           WHERE tm.id = ? AND tm.status = 'completed' AND tm.bye = 0`
+        )
+        .bind(mid)
+        .first<{ id: string; tournament_slug: string; tournament_name: string }>();
+
+      if (!match) return NextResponse.json({ error: "Match not found or not completed" }, { status: 404 });
+
+      const milestones = await detectMilestones(db, mid, match.tournament_slug);
+      if (milestones.length === 0) {
+        return NextResponse.json({ ok: false, message: "No milestones detected for this match" });
+      }
+
+      const participants = (await db
+        .prepare(
+          `SELECT p.email FROM tournament_participants tp
+           JOIN players p ON p.id = tp.player_id
+           WHERE tp.tournament_id = (SELECT id FROM tournaments WHERE slug = ?)`
+        )
+        .bind(match.tournament_slug)
+        .all<{ email: string }>()).results;
+
+      const quipHtml = await generateMilestoneDigestQuip(milestones, match.tournament_name);
+      const milestoneBlocks = milestones.map((ms) => {
+        const matchUrl = `https://framers.app/tournament/${match.tournament_slug}/match/${mid}`;
+        const scorePart = ms.score ? ` (${ms.score})` : "";
+        return `<p style="margin: 12px 0; font-size: 15px;"><strong>${ms.headline}</strong>${scorePart}</p>
+         <p style="margin: 0 0 16px 0; font-size: 13px; color: #64748b;"><a href="${matchUrl}" style="color: #0369a1;">View match</a></p>`;
+      });
+
+      const content = `
+        ${quipHtml}
+        <p>Quick highlights from the action:</p>
+        ${milestoneBlocks.join("")}
+      `;
+
+      const digestSender = listSender(match.tournament_slug, match.tournament_name);
+      const subject = `${match.tournament_name} — Highlights`;
+      const batch = participants.map((p) => ({
+        to: p.email,
+        subject,
+        ...digestSender,
+        html: emailTemplate(content, {
+          heading: match.tournament_name,
+          ctaUrl: `https://framers.app/tournament/${match.tournament_slug}`,
+          ctaLabel: "View Tournament",
+        }),
+      }));
+
+      await sendEmailBatch(batch);
+      const today = new Date().toISOString().slice(0, 10);
+      await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+        .bind("tournament_daily_milestone", `${match.tournament_slug}|${today}`, new Date().toISOString()).run();
+
+      return NextResponse.json({
+        ok: true,
+        matchId: mid,
+        tournament: match.tournament_slug,
+        milestones: milestones.map((m) => m.headline),
+        recipients: participants.length,
+      });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
