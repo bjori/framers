@@ -36,12 +36,12 @@ export async function POST(
   if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
 
   const membership = await db
-    .prepare("SELECT 1 FROM team_memberships WHERE player_id = ? AND team_id = ?")
+    .prepare("SELECT 1 FROM team_memberships WHERE player_id = ? AND team_id = ? AND active = 1")
     .bind(session.player_id, team.id)
     .first();
 
   if (!membership) {
-    return NextResponse.json({ error: "Not a team member" }, { status: 403 });
+    return NextResponse.json({ error: "Not an active team member" }, { status: 403 });
   }
 
   // Verify the match belongs to this team and is confirmed (time posted)

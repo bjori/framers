@@ -107,13 +107,15 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
   const maybeCount = rsvps.filter((r) => r.status === "maybe").length;
   const neededPlayers = format.singles + format.doubles * 2;
 
-  // Check co-captain role
+  // Check co-captain role and active membership (RSVP only for active team members)
   let isCaptain = false;
-  if (session && !isAdmin) {
+  let isActiveTeamMember = false;
+  if (session) {
     const membership = await db.prepare(
-      "SELECT role FROM team_memberships WHERE player_id = ? AND team_id = ?"
-    ).bind(session.player_id, team.id).first<{ role: string }>();
+      "SELECT role, active FROM team_memberships WHERE player_id = ? AND team_id = ?"
+    ).bind(session.player_id, team.id).first<{ role: string; active: number }>();
     isCaptain = membership?.role === "captain" || membership?.role === "co-captain";
+    isActiveTeamMember = membership?.active === 1;
   }
   const canManage = isAdmin || isCaptain;
 
@@ -254,8 +256,8 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
         )}
       </div>
 
-      {/* My RSVP — hidden when player is in the confirmed lineup (use ack buttons instead) */}
-      {session && !isPast && !myLineupSlot && (
+      {/* My RSVP — only for active team members; hidden when in confirmed lineup (use ack buttons instead) */}
+      {session && isActiveTeamMember && !isPast && !myLineupSlot && (
         <MatchRsvp
           slug={slug}
           matchId={id}

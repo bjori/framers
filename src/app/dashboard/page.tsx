@@ -124,7 +124,7 @@ export default async function DashboardPage() {
                   ls.acknowledged as lineup_acknowledged
            FROM league_matches lm
            JOIN teams te ON te.id = lm.team_id
-           JOIN team_memberships mem ON mem.team_id = te.id AND mem.player_id = ?
+           JOIN team_memberships mem ON mem.team_id = te.id AND mem.player_id = ? AND mem.active = 1
            LEFT JOIN availability a ON a.player_id = ? AND a.match_id = lm.id
            LEFT JOIN lineups lu ON lu.match_id = lm.id
            LEFT JOIN lineup_slots ls ON ls.lineup_id = lu.id AND ls.player_id = ?
@@ -154,8 +154,9 @@ export default async function DashboardPage() {
              WHEN my_tp.id = tm.participant1_id THEN tm.participant2_id
              ELSE tm.participant1_id END
            LEFT JOIN players opp_p ON opp_p.id = opp_tp.player_id
-           WHERE my_tp.player_id = ? AND tm.status = 'scheduled'
+           WHERE my_tp.player_id = ? AND tm.status IN ('scheduled','needs_score')
              AND tm.scheduled_date < date('now')
+             AND tm.score1_sets IS NULL
              AND tm.bye = 0
            ORDER BY tm.scheduled_date ASC
            LIMIT 5`
@@ -249,13 +250,25 @@ export default async function DashboardPage() {
         <section className="bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-300 dark:border-amber-700/50 p-4">
           <h2 className="text-sm font-bold uppercase text-amber-700 dark:text-amber-400 mb-2">Action Needed</h2>
           <div className="space-y-1.5 text-slate-800 dark:text-slate-200">
-            {pendingRsvpCount > 0 && (
-              <p className="text-sm">
-                <span className="font-semibold">{pendingRsvpCount} match{pendingRsvpCount > 1 ? "es" : ""}</span> awaiting your RSVP
-              </p>
-            )}
+            {pendingRsvpCount > 0 && (() => {
+              const firstRsvpMatch = leagueMatches.find((m) => !!(m.notes && m.notes.trim()) && !m.rsvp_status);
+              const rsvpContent = (
+                <span className="font-semibold">{pendingRsvpCount} match{pendingRsvpCount > 1 ? "es" : ""}</span>
+              );
+              return (
+                <p className="text-sm">
+                  {firstRsvpMatch ? (
+                    <Link href={`/team/${firstRsvpMatch.team_slug}/match/${firstRsvpMatch.match_id}`} className="text-sky-700 dark:text-sky-400 hover:underline">
+                      {rsvpContent} awaiting your RSVP
+                    </Link>
+                  ) : (
+                    <>{rsvpContent} awaiting your RSVP</>
+                  )}
+                </p>
+              );
+            })()}
             {unscoredMatches.map((m) => (
-              <Link key={m.match_id} href={`/tournament/${m.tournament_slug}`} className="block text-sm text-sky-700 dark:text-sky-400 hover:underline">
+              <Link key={m.match_id} href={`/tournament/${m.tournament_slug}/match/${m.match_id}`} className="block text-sm text-sky-700 dark:text-sky-400 hover:underline">
                 Score needed: vs {m.opponent_name} ({new Date(m.scheduled_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })})
               </Link>
             ))}

@@ -222,7 +222,7 @@ export function TeamTabs({
       </div>
 
       {tab === "schedule" && (
-        <TeamSchedule matches={matches} isReadOnly={isReadOnly} slug={slug} emptyMessage={emptyScheduleMessage} />
+        <TeamSchedule matches={matches} isReadOnly={isReadOnly || !isMember} slug={slug} emptyMessage={emptyScheduleMessage} />
       )}
 
       {tab === "roster" && (
