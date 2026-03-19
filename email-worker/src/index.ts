@@ -29,20 +29,39 @@ async function getListMembers(db: D1Database, config: { slug: string; type: "tea
   ).bind(config.slug).all<{ email: string; name: string }>()).results;
 }
 
+function extractEmail(addr: string): string {
+  const m = addr.match(/<([^>]+)>/);
+  return (m ? m[1] : addr).trim().toLowerCase();
+}
+
 export default {
   async email(message: ForwardableEmailMessage, env: Env): Promise<void> {
-    const recipient = message.to.toLowerCase();
+    const recipient = extractEmail(message.to);
     const config = LIST_CONFIG[recipient];
 
     if (!config) {
+      try {
+        await env.DB.prepare(
+          "INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)"
+        )
+          .bind("list_reply_rejected", `no_such_list|${recipient}|${extractEmail(message.from)}`, new Date().toISOString())
+          .run();
+      } catch {}
       message.setReject("550 No such list");
       return;
     }
 
-    const senderAddress = message.from.toLowerCase();
+    const senderAddress = extractEmail(message.from);
 
     const members = await getListMembers(env.DB, config);
     if (members.length === 0) {
+      try {
+        await env.DB.prepare(
+          "INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)"
+        )
+          .bind("list_reply_rejected", `empty_list|${recipient}|${config.slug}`, new Date().toISOString())
+          .run();
+      } catch {}
       message.setReject("550 List has no members");
       return;
     }
@@ -59,7 +78,16 @@ export default {
 
     // Filter out sender so they don't get their own email
     const recipients = members.filter((m) => m.email.toLowerCase() !== senderAddress);
-    if (recipients.length === 0) return;
+    if (recipients.length === 0) {
+      try {
+        await env.DB.prepare(
+          "INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)"
+        )
+          .bind("list_reply_rejected", `sender_only_member|${recipient}|${senderAddress}|${subject}`, new Date().toISOString())
+          .run();
+      } catch {}
+      return;
+    }
 
     const listName = recipient.split("@")[0];
     const payload = recipients.map((r) => ({
@@ -72,6 +100,7 @@ export default {
     }));
 
     // Resend batch API max 100 per call
+    let totalSent = 0;
     for (let i = 0; i < payload.length; i += 100) {
       const batch = payload.slice(i, i + 100);
       const res = await fetch("https://api.resend.com/emails/batch", {
@@ -84,10 +113,33 @@ export default {
       });
 
       if (!res.ok) {
-        console.error(`[EMAIL-WORKER] Batch send failed: ${await res.text()}`);
-      } else {
-        console.log(`[EMAIL-WORKER] Forwarded to ${batch.length} recipients on ${listName}`);
+        const errText = await res.text();
+        console.error(`[EMAIL-WORKER] Batch send failed: ${errText}`);
+        try {
+          await env.DB.prepare(
+            "INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)"
+          )
+            .bind("list_reply_forwarded_failed", `${listName}|${senderAddress}|${subject}|${errText}`, new Date().toISOString())
+            .run();
+        } catch (e) {
+          console.error(`[EMAIL-WORKER] Failed to log failure:`, e);
+        }
+        return;
       }
+      totalSent += batch.length;
+      console.log(`[EMAIL-WORKER] Forwarded to ${batch.length} recipients on ${listName}`);
+    }
+
+    // Log to app_events so we can verify replies were forwarded
+    try {
+      const detail = `${listName}|${totalSent} recipients|${senderAddress}|${subject}`;
+      await env.DB.prepare(
+        "INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)"
+      )
+        .bind("list_reply_forwarded", detail, new Date().toISOString())
+        .run();
+    } catch (e) {
+      console.error(`[EMAIL-WORKER] Failed to log app_event:`, e);
     }
   },
 };

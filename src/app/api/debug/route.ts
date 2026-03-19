@@ -612,6 +612,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, ...result });
     }
 
+    if (body.action === "list-reply-log") {
+      const limit = Math.min((body as { limit?: number }).limit ?? 20, 50);
+      const [forwarded, failed] = await Promise.all([
+        db.prepare(
+          `SELECT event, detail, created_at FROM app_events
+           WHERE event = 'list_reply_forwarded'
+           ORDER BY created_at DESC LIMIT ?`
+        )
+          .bind(limit)
+          .all<{ event: string; detail: string; created_at: string }>(),
+        db.prepare(
+          `SELECT event, detail, created_at FROM app_events
+           WHERE event IN ('list_reply_forwarded_failed', 'list_reply_rejected')
+           ORDER BY created_at DESC LIMIT ?`
+        )
+          .bind(limit)
+          .all<{ event: string; detail: string; created_at: string }>(),
+      ]);
+      return NextResponse.json({
+        ok: true,
+        forwarded: forwarded.results.map((r) => {
+          const parts = r.detail.split("|");
+          return {
+            listName: parts[0],
+            recipients: parts[1],
+            sender: parts[2],
+            subject: parts.slice(3).join("|"),
+            created_at: r.created_at,
+          };
+        }),
+        failed: failed.results.map((r) => ({
+          event: r.event,
+          detail: r.detail,
+          created_at: r.created_at,
+        })),
+      });
+    }
+
     if (body.action === "send-milestone-digest") {
       const matchId = (body as { matchId?: string }).matchId;
       const listOnly = (body as { list?: boolean }).list;
