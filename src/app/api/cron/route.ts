@@ -802,8 +802,15 @@ export async function GET(request: NextRequest) {
     .all<{ match_id: string; tournament_slug: string; tournament_name: string }>()
   ).results;
 
+  const alreadyFeatured = new Set(
+    (await db.prepare(
+      "SELECT detail FROM app_events WHERE event = 'milestone_digest_match'"
+    ).all<{ detail: string }>()).results.map((r) => r.detail)
+  );
+
   const milestonesByTournament = new Map<string, { matchId: string; milestones: Milestone[] }[]>();
   for (const m of recentTournamentMatches) {
+    if (alreadyFeatured.has(m.match_id)) continue;
     const milestones = await detectMilestones(db, m.match_id, m.tournament_slug);
     if (milestones.length > 0) {
       const arr = milestonesByTournament.get(m.tournament_slug) ?? [];
@@ -860,6 +867,10 @@ export async function GET(request: NextRequest) {
     await sendEmailBatch(batch);
     await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
       .bind("tournament_daily_milestone", digestDedup, now.toISOString()).run();
+    for (const { matchId } of items) {
+      await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+        .bind("milestone_digest_match", matchId, now.toISOString()).run();
+    }
     log.push(`[Milestone digest] ${slug}: sent to ${participants.length} participants`);
   }
 

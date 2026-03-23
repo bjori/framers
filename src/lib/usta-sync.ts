@@ -65,6 +65,7 @@ interface ParsedScheduleMatch {
   roundNumber: number;
   matchDate: string;
   opponentTeam: string;
+  opponentUstaTeamId: string | null;
   isHome: boolean;
 }
 
@@ -112,31 +113,57 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
   const rosterStart = teamHtml.indexOf("Team Roster");
   if (schedSection > -1) {
     const schedHtml = teamHtml.substring(schedSection, rosterStart > -1 ? rosterStart : undefined);
-    const schedRegex = /&nbsp;(\d+)&nbsp;[\s\S]*?(\d{2})\/(\d{2})\/(\d{2})<\/td>[\s\S]*?(?:Teaminfo|teaminfo)\.asp\?id=\d+>([^<]+)<\/a><\/td>\s*<td[^>]*>(Home|Away)<\/td>/gi;
+    const schedRegex = /&nbsp;(\d+)&nbsp;[\s\S]*?(\d{2})\/(\d{2})\/(\d{2})<\/td>[\s\S]*?(?:Teaminfo|teaminfo)\.asp\?id=(\d+)>([^<]+)<\/a><\/td>\s*<td[^>]*>(Home|Away)<\/td>/gi;
     let schedMatch;
     while ((schedMatch = schedRegex.exec(schedHtml)) !== null) {
       scheduleMatches.push({
         roundNumber: parseInt(schedMatch[1]),
         matchDate: `20${schedMatch[4]}-${schedMatch[2]}-${schedMatch[3]}`,
-        opponentTeam: schedMatch[5].trim(),
-        isHome: schedMatch[6].toLowerCase() === "home",
+        opponentTeam: schedMatch[6].trim(),
+        opponentUstaTeamId: schedMatch[5] || null,
+        isHome: schedMatch[7].toLowerCase() === "home",
       });
     }
   }
 
   // Create or update league_matches from schedule (run BEFORE timeUpdates so dates are correct)
+  // Match by opponent_usta_team_id (Teaminfo.asp?id=) so we update existing match when USTA renames a team
   let scheduleCreated = 0;
   let scheduleUpdated = 0;
   for (const sm of scheduleMatches) {
+    if (sm.opponentUstaTeamId) {
+      const byOpponentUstaId = await db.prepare(
+        "SELECT id, opponent_team, round_number, is_home FROM league_matches WHERE team_id = ? AND match_date = ? AND opponent_usta_team_id = ?"
+      ).bind(team.id, sm.matchDate, sm.opponentUstaTeamId).first<{ id: string; opponent_team: string | null; round_number: number; is_home: number }>();
+
+      if (byOpponentUstaId) {
+        const updates: (string | number)[] = [sm.roundNumber, sm.isHome ? 1 : 0, byOpponentUstaId.id];
+        const opponentChanged = byOpponentUstaId.opponent_team !== sm.opponentTeam;
+        if (opponentChanged || byOpponentUstaId.round_number !== sm.roundNumber || byOpponentUstaId.is_home !== (sm.isHome ? 1 : 0)) {
+          await db.prepare(
+            "UPDATE league_matches SET opponent_team = ?, round_number = ?, is_home = ?, opponent_usta_team_id = ? WHERE id = ?"
+          ).bind(sm.opponentTeam, sm.roundNumber, sm.isHome ? 1 : 0, sm.opponentUstaTeamId, byOpponentUstaId.id).run();
+          scheduleUpdated++;
+        }
+        continue;
+      }
+    }
+
     const byOpponent = await db.prepare(
       "SELECT id, round_number, is_home FROM league_matches WHERE team_id = ? AND match_date = ? AND opponent_team = ?"
     ).bind(team.id, sm.matchDate, sm.opponentTeam).first<{ id: string; round_number: number; is_home: number }>();
 
     if (byOpponent) {
-      if (byOpponent.round_number !== sm.roundNumber || byOpponent.is_home !== (sm.isHome ? 1 : 0)) {
+      if (sm.opponentUstaTeamId) {
+        await db.prepare(
+          "UPDATE league_matches SET round_number = ?, is_home = ?, opponent_usta_team_id = ? WHERE id = ?"
+        ).bind(sm.roundNumber, sm.isHome ? 1 : 0, sm.opponentUstaTeamId, byOpponent.id).run();
+      } else {
         await db.prepare(
           "UPDATE league_matches SET round_number = ?, is_home = ? WHERE id = ?"
         ).bind(sm.roundNumber, sm.isHome ? 1 : 0, byOpponent.id).run();
+      }
+      if (byOpponent.round_number !== sm.roundNumber || byOpponent.is_home !== (sm.isHome ? 1 : 0) || sm.opponentUstaTeamId) {
         scheduleUpdated++;
       }
       continue;
@@ -148,27 +175,34 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
 
     if (byRoundOpponent) {
       await db.prepare(
-        "UPDATE league_matches SET match_date = ?, is_home = ? WHERE id = ?"
-      ).bind(sm.matchDate, sm.isHome ? 1 : 0, byRoundOpponent.id).run();
+        "UPDATE league_matches SET match_date = ?, is_home = ?, opponent_usta_team_id = COALESCE(?, opponent_usta_team_id) WHERE id = ?"
+      ).bind(sm.matchDate, sm.isHome ? 1 : 0, sm.opponentUstaTeamId ?? null, byRoundOpponent.id).run();
       scheduleUpdated++;
       continue;
     }
 
     const allOnDate = (await db.prepare(
-      "SELECT id, opponent_team, round_number FROM league_matches WHERE team_id = ? AND match_date = ?"
-    ).bind(team.id, sm.matchDate).all<{ id: string; opponent_team: string; round_number: number }>()).results;
+      "SELECT id, opponent_team, opponent_usta_team_id, round_number FROM league_matches WHERE team_id = ? AND match_date = ?"
+    ).bind(team.id, sm.matchDate).all<{ id: string; opponent_team: string | null; opponent_usta_team_id: string | null; round_number: number }>()).results;
 
-    if (allOnDate.length === 1 && !allOnDate[0].opponent_team) {
-      await db.prepare(
-        "UPDATE league_matches SET opponent_team = ?, is_home = ?, round_number = ? WHERE id = ?"
-      ).bind(sm.opponentTeam, sm.isHome ? 1 : 0, sm.roundNumber, allOnDate[0].id).run();
-      scheduleUpdated++;
-    } else {
-      await db.prepare(
-        "INSERT INTO league_matches (id, team_id, round_number, opponent_team, match_date, is_home, status) VALUES (?, ?, ?, ?, ?, ?, 'open')"
-      ).bind(crypto.randomUUID(), team.id, sm.roundNumber, sm.opponentTeam, sm.matchDate, sm.isHome ? 1 : 0).run();
-      scheduleCreated++;
+    if (allOnDate.length === 1) {
+      const m = allOnDate[0];
+      const isEmpty = !m.opponent_team;
+      const sameUstaId = sm.opponentUstaTeamId && m.opponent_usta_team_id === sm.opponentUstaTeamId;
+      const onlyMatchOnDate = allOnDate.length === 1;
+      if (isEmpty || sameUstaId || (onlyMatchOnDate && sm.opponentUstaTeamId)) {
+        await db.prepare(
+          "UPDATE league_matches SET opponent_team = ?, opponent_usta_team_id = COALESCE(?, opponent_usta_team_id), is_home = ?, round_number = ? WHERE id = ?"
+        ).bind(sm.opponentTeam, sm.opponentUstaTeamId ?? null, sm.isHome ? 1 : 0, sm.roundNumber, m.id).run();
+        scheduleUpdated++;
+        continue;
+      }
     }
+
+    await db.prepare(
+      "INSERT INTO league_matches (id, team_id, round_number, opponent_team, opponent_usta_team_id, match_date, is_home, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open')"
+    ).bind(crypto.randomUUID(), team.id, sm.roundNumber, sm.opponentTeam, sm.opponentUstaTeamId ?? null, sm.matchDate, sm.isHome ? 1 : 0).run();
+    scheduleCreated++;
   }
 
   for (const tu of timeUpdates) {

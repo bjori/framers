@@ -43,6 +43,7 @@ const MIGRATIONS = [
   `ALTER TABLE tournament_matches ADD COLUMN win_probability REAL`,
   `ALTER TABLE tournament_matches ADD COLUMN quip_updated_at TEXT`,
   `ALTER TABLE league_matches ADD COLUMN pre_match_preview TEXT`,
+  `ALTER TABLE league_matches ADD COLUMN opponent_usta_team_id TEXT`,
 ];
 
 export async function GET(request: NextRequest) {

@@ -754,6 +754,8 @@ export async function POST(request: NextRequest) {
       const today = new Date().toISOString().slice(0, 10);
       await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
         .bind("tournament_daily_milestone", `${match.tournament_slug}|${today}`, new Date().toISOString()).run();
+      await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+        .bind("milestone_digest_match", mid, new Date().toISOString()).run();
 
       return NextResponse.json({
         ok: true,
@@ -761,6 +763,30 @@ export async function POST(request: NextRequest) {
         tournament: match.tournament_slug,
         milestones: milestones.map((m) => m.headline),
         recipients: participants.length,
+      });
+    }
+
+    if (body.action === "mark-milestone-sent") {
+      const matchIds = (body as { matchIds: string[] }).matchIds;
+      if (!Array.isArray(matchIds) || matchIds.length === 0) {
+        return NextResponse.json({ error: "matchIds array required" }, { status: 400 });
+      }
+      const existing = new Set(
+        (await db.prepare("SELECT detail FROM app_events WHERE event = 'milestone_digest_match'")
+          .all<{ detail: string }>()).results.map((r) => r.detail)
+      );
+      const toInsert = matchIds.filter((mid) => !existing.has(mid));
+      const now = new Date().toISOString();
+      for (const mid of toInsert) {
+        await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+          .bind("milestone_digest_match", mid, now).run();
+      }
+      const skipped = matchIds.filter((mid) => existing.has(mid));
+      return NextResponse.json({
+        ok: true,
+        message: `Marked ${toInsert.length} match(es) as already featured${skipped.length > 0 ? ` (${skipped.length} were already marked)` : ""}`,
+        inserted: toInsert,
+        skipped,
       });
     }
 
