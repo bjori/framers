@@ -42,14 +42,22 @@ export default function UstaSyncPage() {
             rosterSynced?: number;
             rosterNames?: string[];
             unmatchedRosterNames?: string[];
+            ustaRosterNotOnFramers?: string[];
           };
           const ustaCount = data.rosterNames?.length ?? 0;
+          const flags = data.rosterSynced ?? 0;
           results.push(
-            `${slug}: ${data.scorecards} scorecards, ${data.updated} updated, ${data.rosterSynced ?? 0} roster flags set (USTA lists ${ustaCount} names)`
+            `${slug}: ${data.scorecards} scorecards, ${data.updated} updated, ${flags} roster flags set (USTA ${ustaCount} names on official roster)`
           );
+          const notOnTeam = data.ustaRosterNotOnFramers ?? [];
+          if (notOnTeam.length > 0) {
+            details.push(
+              `${slug} — on USTA roster but not on this Framers team (${notOnTeam.length}): ${notOnTeam.join("; ")}. Add them in Admin/Players or they may be senior-only in the app.`
+            );
+          }
           const unmatched = data.unmatchedRosterNames ?? [];
           if (unmatched.length > 0) {
-            details.push(`${slug} — not linked to a Framers roster player: ${unmatched.join("; ")}`);
+            details.push(`${slug} — not in Framers DB / name map: ${unmatched.join("; ")}`);
           }
         } else {
           const err = (await res.json()) as { error?: string };
@@ -103,8 +111,8 @@ export default function UstaSyncPage() {
           <p className="text-xs text-slate-500 mb-3">
             Fetches scores, schedule times, and roster data from leagues.ustanorcal.com for senior and junior teams
             (each needs <code className="text-[11px]">usta_team_id</code> on the team). Schedule and scorecards apply to everyone on USTA.
-            Roster sync only sets the <strong>USTA registered</strong> flag on people already on the Framers roster; it does not add new members.
-            Names must match Framers display name or the hardcoded name map in <code className="text-[11px]">usta-sync.ts</code>. Unmatched USTA names show below after sync.
+            Roster sync only sets the <strong>USTA registered</strong> flag for people on <em>this</em> team&apos;s Framers roster; it does not add members.
+            Official USTA count can exceed Framers if players are on USTA but not added to the team in the app — those names are listed after sync.
             Daily cron runs at 9 AM Pacific.
           </p>
           <button

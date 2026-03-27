@@ -73,10 +73,13 @@ export interface SyncResult {
   teamSlug: string;
   scorecards: number;
   updated: number;
+  /** Count of active team members who got usta_registered = 1 (matches this team's Framers roster, not USTA name resolve count). */
   rosterSynced: number;
   rosterNames: string[];
-  /** USTA roster names we could not map to a player in team_memberships or PLAYER_NAME_MAP */
+  /** USTA roster names we could not map to any Framers player */
   unmatchedRosterNames: string[];
+  /** USTA lists them and they exist in PLAYER_NAME_MAP / DB, but they are not on this team's Framers roster — add membership or they play another team only */
+  ustaRosterNotOnFramers: string[];
   scheduleCreated: number;
   scheduleUpdated: number;
 }
@@ -93,6 +96,7 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
       rosterSynced: 0,
       rosterNames: [],
       unmatchedRosterNames: [],
+      ustaRosterNotOnFramers: [],
       scheduleCreated: 0,
       scheduleUpdated: 0,
     };
@@ -248,19 +252,31 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
      WHERE tm.team_id = ? AND tm.active = 1`
   ).bind(team.id).all<{ player_id: string; name: string }>()).results;
 
+  const teamMemberIds = new Set(teamMembers.map((m) => m.player_id));
   const rosterPlayerIds: string[] = [];
   const unmatchedRosterNames: string[] = [];
+  const ustaRosterNotOnFramers: string[] = [];
+
   for (const ustaName of rosterNames) {
     const normalized = normalizeUstaName(ustaName);
-    const match = teamMembers.find((m) => m.name.toLowerCase() === normalized);
-    if (match) {
-      rosterPlayerIds.push(match.player_id);
-    } else {
-      const resolvedId = resolvePlayer(ustaName);
-      if (resolvedId) rosterPlayerIds.push(resolvedId);
-      else unmatchedRosterNames.push(ustaName);
+    const nameMatch = teamMembers.find((m) => m.name.toLowerCase() === normalized);
+    if (nameMatch) {
+      rosterPlayerIds.push(nameMatch.player_id);
+      continue;
     }
+    const resolvedId = resolvePlayer(ustaName);
+    if (resolvedId && teamMemberIds.has(resolvedId)) {
+      rosterPlayerIds.push(resolvedId);
+      continue;
+    }
+    if (resolvedId && !teamMemberIds.has(resolvedId)) {
+      ustaRosterNotOnFramers.push(ustaName);
+      continue;
+    }
+    unmatchedRosterNames.push(ustaName);
   }
+
+  const rosterSynced = new Set(rosterPlayerIds).size;
 
   if (rosterNames.length > 0) {
     await db.prepare(
@@ -406,9 +422,10 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     teamSlug,
     scorecards: scorecardIds.length,
     updated: updatedCount,
-    rosterSynced: rosterPlayerIds.length,
+    rosterSynced,
     rosterNames,
     unmatchedRosterNames,
+    ustaRosterNotOnFramers,
     scheduleCreated,
     scheduleUpdated,
   };
