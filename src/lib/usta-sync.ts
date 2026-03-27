@@ -55,10 +55,15 @@ function parseScore(score: string, won: boolean): { our: string; opp: string } {
   return { our: ourParts.join(","), opp: oppParts.join(",") };
 }
 
+/** USTA full name after "Last, First" normalize → common Framers display spellings */
+const USTA_NAME_ALIASES: Record<string, string> = {
+  "daniel lopez": "dan lopez",
+};
+
 function normalizeUstaName(ustaName: string): string {
   const parts = ustaName.split(",").map((s: string) => s.trim().toLowerCase());
-  if (parts.length === 2) return `${parts[1]} ${parts[0]}`;
-  return ustaName.toLowerCase().trim();
+  const fromUsta = parts.length === 2 ? `${parts[1]} ${parts[0]}` : ustaName.toLowerCase().trim();
+  return USTA_NAME_ALIASES[fromUsta] ?? fromUsta;
 }
 
 interface ParsedScheduleMatch {
