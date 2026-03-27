@@ -75,6 +75,8 @@ export interface SyncResult {
   updated: number;
   rosterSynced: number;
   rosterNames: string[];
+  /** USTA roster names we could not map to a player in team_memberships or PLAYER_NAME_MAP */
+  unmatchedRosterNames: string[];
   scheduleCreated: number;
   scheduleUpdated: number;
 }
@@ -84,7 +86,16 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     .bind(teamSlug).first<{ id: string; usta_team_id: string }>();
 
   if (!team?.usta_team_id) {
-    return { teamSlug, scorecards: 0, updated: 0, rosterSynced: 0, rosterNames: [], scheduleCreated: 0, scheduleUpdated: 0 };
+    return {
+      teamSlug,
+      scorecards: 0,
+      updated: 0,
+      rosterSynced: 0,
+      rosterNames: [],
+      unmatchedRosterNames: [],
+      scheduleCreated: 0,
+      scheduleUpdated: 0,
+    };
   }
 
   const teamUrl = `${USTA_BASE}/teaminfo.asp?id=${team.usta_team_id}`;
@@ -238,6 +249,7 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
   ).bind(team.id).all<{ player_id: string; name: string }>()).results;
 
   const rosterPlayerIds: string[] = [];
+  const unmatchedRosterNames: string[] = [];
   for (const ustaName of rosterNames) {
     const normalized = normalizeUstaName(ustaName);
     const match = teamMembers.find((m) => m.name.toLowerCase() === normalized);
@@ -246,6 +258,7 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     } else {
       const resolvedId = resolvePlayer(ustaName);
       if (resolvedId) rosterPlayerIds.push(resolvedId);
+      else unmatchedRosterNames.push(ustaName);
     }
   }
 
@@ -395,6 +408,7 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     updated: updatedCount,
     rosterSynced: rosterPlayerIds.length,
     rosterNames,
+    unmatchedRosterNames,
     scheduleCreated,
     scheduleUpdated,
   };

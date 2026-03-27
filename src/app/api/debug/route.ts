@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { requireAdminSecret } from "@/lib/admin-secret";
 import { calculateElo, seedElo } from "@/lib/elo";
-import { sendEmailBatch, emailTemplate, listSender } from "@/lib/email";
+import { sendEmailBatch, emailTemplate, listSender, matchThreadHeaders } from "@/lib/email";
 import { detectMilestones, generateMilestoneDigestQuip } from "@/lib/tournament-milestones";
 
 export async function POST(request: NextRequest) {
@@ -763,6 +763,83 @@ export async function POST(request: NextRequest) {
         tournament: match.tournament_slug,
         milestones: milestones.map((m) => m.headline),
         recipients: participants.length,
+      });
+    }
+
+    if (body.action === "send-rsvp-nudge") {
+      const matchId = (body as { matchId: string }).matchId;
+      if (!matchId) return NextResponse.json({ error: "matchId required" }, { status: 400 });
+
+      const match = await db
+        .prepare(
+          `SELECT lm.id, lm.opponent_team, lm.match_date,
+                  t.name as team_name, t.slug as team_slug
+           FROM league_matches lm
+           JOIN teams t ON t.id = lm.team_id
+           WHERE lm.id = ?`
+        )
+        .bind(matchId)
+        .first<{ id: string; opponent_team: string; match_date: string; team_name: string; team_slug: string }>();
+
+      if (!match) return NextResponse.json({ error: "Match not found" }, { status: 404 });
+
+      const teamId = (await db.prepare("SELECT team_id FROM league_matches WHERE id = ?").bind(matchId).first<{ team_id: string }>())?.team_id;
+      if (!teamId) return NextResponse.json({ error: "Match has no team" }, { status: 404 });
+
+      const nonResponders = (
+        await db.prepare(
+          `SELECT p.name FROM team_memberships tm
+           JOIN players p ON p.id = tm.player_id
+           LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
+           WHERE tm.team_id = ? AND tm.active = 1 AND a.status IS NULL`
+        ).bind(matchId, teamId).all<{ name: string }>()
+      ).results;
+
+      const members = (
+        await db.prepare(
+          `SELECT p.email, p.name FROM team_memberships tm
+           JOIN players p ON p.id = tm.player_id
+           WHERE tm.team_id = ? AND tm.active = 1`
+        ).bind(teamId).all<{ email: string; name: string }>()
+      ).results;
+
+      const dateStr = new Date(match.match_date + "T12:00:00").toLocaleDateString("en-US", {
+        weekday: "long", month: "long", day: "numeric",
+      });
+      const matchUrl = `https://framers.app/team/${match.team_slug}/match/${matchId}`;
+
+      const nonResponderList =
+        nonResponders.length > 0
+          ? `<p style="margin: 12px 0; font-size: 15px; font-weight: 600; color: #b45309;">Still need to RSVP: ${nonResponders.map((r) => r.name.split(" ")[0]).join(", ")}</p>
+             <p>If that&rsquo;s you — please let us know ASAP so we can plan. It&rsquo;s a school break week and we need to know our numbers.</p>`
+          : "<p>Great — everyone has RSVP&rsquo;d! Thanks for the quick responses.</p>";
+
+      const content = `
+        <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey Framers,</h2>
+        <p>We need RSVPs for our <strong>first match</strong> against <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
+        ${nonResponderList}
+        <p style="margin-top: 16px;">Please RSVP as soon as you can — with school break we need to know early if we can field a full team.</p>
+      `;
+
+      const sender = listSender(match.team_slug, match.team_name);
+      const batch = members.map((m) => ({
+        to: m.email,
+        subject: `RSVP needed: Junior Framers vs ${match.opponent_team} (${dateStr})`,
+        ...sender,
+        html: emailTemplate(content, {
+          heading: "RSVP Needed",
+          ctaUrl: matchUrl,
+          ctaLabel: "RSVP Now",
+        }),
+        headers: matchThreadHeaders(matchId),
+      }));
+
+      await sendEmailBatch(batch);
+      return NextResponse.json({
+        ok: true,
+        sent: members.length,
+        nonResponders: nonResponders.map((r) => r.name),
+        matchUrl,
       });
     }
 

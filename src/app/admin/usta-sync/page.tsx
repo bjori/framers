@@ -10,6 +10,7 @@ export default function UstaSyncPage() {
   const [syncing, setSyncing] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
   const [message, setMessage] = useState("");
+  const [detailLines, setDetailLines] = useState<string[]>([]);
 
   useEffect(() => {
     fetch("/api/auth/me").then(async (r) => {
@@ -23,8 +24,10 @@ export default function UstaSyncPage() {
   async function syncUsta() {
     setSyncing(true);
     setMessage("");
+    setDetailLines([]);
     const teamSlugs = ["senior-framers-2026", "junior-framers-2026"];
     const results: string[] = [];
+    const details: string[] = [];
     for (const slug of teamSlugs) {
       try {
         const res = await fetch("/api/admin/usta-sync", {
@@ -33,8 +36,21 @@ export default function UstaSyncPage() {
           body: JSON.stringify({ teamSlug: slug }),
         });
         if (res.ok) {
-          const data = (await res.json()) as { scorecards: number; updated: number; rosterSynced?: number };
-          results.push(`${slug}: ${data.scorecards} scorecards, ${data.updated} updated, ${data.rosterSynced ?? 0} rostered`);
+          const data = (await res.json()) as {
+            scorecards: number;
+            updated: number;
+            rosterSynced?: number;
+            rosterNames?: string[];
+            unmatchedRosterNames?: string[];
+          };
+          const ustaCount = data.rosterNames?.length ?? 0;
+          results.push(
+            `${slug}: ${data.scorecards} scorecards, ${data.updated} updated, ${data.rosterSynced ?? 0} roster flags set (USTA lists ${ustaCount} names)`
+          );
+          const unmatched = data.unmatchedRosterNames ?? [];
+          if (unmatched.length > 0) {
+            details.push(`${slug} — not linked to a Framers roster player: ${unmatched.join("; ")}`);
+          }
         } else {
           const err = (await res.json()) as { error?: string };
           results.push(`${slug}: ${err.error || "failed"}`);
@@ -44,6 +60,7 @@ export default function UstaSyncPage() {
       }
     }
     setMessage(`USTA sync complete: ${results.join(" | ")}`);
+    setDetailLines(details);
     setSyncing(false);
   }
 
@@ -68,8 +85,15 @@ export default function UstaSyncPage() {
       <h1 className="text-2xl font-bold">USTA Sync & ELO</h1>
 
       {message && (
-        <div className="bg-sky-100 dark:bg-sky-900/30 text-sky-800 dark:text-sky-300 rounded-lg px-4 py-2 text-sm">
-          {message}
+        <div className="bg-sky-100 dark:bg-sky-900/30 text-sky-800 dark:text-sky-300 rounded-lg px-4 py-2 text-sm space-y-2">
+          <div>{message}</div>
+          {detailLines.length > 0 && (
+            <ul className="list-disc pl-5 text-xs text-sky-900 dark:text-sky-200 space-y-1">
+              {detailLines.map((line, i) => (
+                <li key={i}>{line}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -77,8 +101,11 @@ export default function UstaSyncPage() {
         <div>
           <h2 className="font-semibold text-sm mb-1">Sync USTA Results</h2>
           <p className="text-xs text-slate-500 mb-3">
-            Fetches scores, schedule times, and roster data from leagues.ustanorcal.com for all active teams.
-            This also runs automatically every day at 9 AM Pacific via the cron job.
+            Fetches scores, schedule times, and roster data from leagues.ustanorcal.com for senior and junior teams
+            (each needs <code className="text-[11px]">usta_team_id</code> on the team). Schedule and scorecards apply to everyone on USTA.
+            Roster sync only sets the <strong>USTA registered</strong> flag on people already on the Framers roster; it does not add new members.
+            Names must match Framers display name or the hardcoded name map in <code className="text-[11px]">usta-sync.ts</code>. Unmatched USTA names show below after sync.
+            Daily cron runs at 9 AM Pacific.
           </p>
           <button
             onClick={syncUsta}
