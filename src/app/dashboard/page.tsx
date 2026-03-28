@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import CalendarSubscribe from "@/components/calendar-subscribe";
 import { DashboardRsvp } from "@/components/dashboard-rsvp";
 import DashboardPracticeCard from "@/components/dashboard-practice-card";
+import { filterPracticeSessionsStillOnSchedule } from "@/lib/practice-schedule";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,7 @@ interface UpcomingPractice {
   id: string;
   session_date: string;
   start_time: string;
+  end_time: string;
   yes_count: number;
   my_rsvp: string | null;
 }
@@ -79,7 +81,6 @@ export default async function DashboardPage() {
   let unscoredMatches: UnscoredMatch[] = [];
   let pendingRsvpCount = 0;
   let owedFees: OwedFee[] = [];
-  let nextPractice: UpcomingPractice | null = null;
   let ustaNeeded: { team_name: string; team_slug: string; usta_team_id: string }[] = [];
   const allEvents: TimelineEvent[] = [];
 
@@ -186,20 +187,6 @@ export default async function DashboardPage() {
       // fees table might not exist yet
     }
 
-    try {
-      const np = await db.prepare(
-        `SELECT ps.id, ps.session_date, ps.start_time,
-                (SELECT COUNT(*) FROM practice_rsvp pr WHERE pr.session_id = ps.id AND pr.status = 'yes') as yes_count,
-                (SELECT status FROM practice_rsvp pr2 WHERE pr2.session_id = ps.id AND pr2.player_id = ?) as my_rsvp
-         FROM practice_sessions ps
-         WHERE ps.session_date >= date('now') AND ps.cancelled = 0
-         ORDER BY ps.session_date ASC LIMIT 1`
-      ).bind(session.player_id).first<{ id: string; session_date: string; start_time: string; yes_count: number; my_rsvp: string | null }>();
-      if (np) nextPractice = np;
-    } catch {
-      // practice tables might not exist yet
-    }
-
     // Check for teams where user needs USTA registration
     try {
       ustaNeeded = (await db.prepare(
@@ -212,15 +199,18 @@ export default async function DashboardPage() {
     } catch { /* column may not exist yet */ }
 
     try {
-      const practices = (await db.prepare(
-        `SELECT ps.id, ps.session_date, ps.start_time,
+      const practiceRows = (await db.prepare(
+        `SELECT ps.id, ps.session_date, ps.start_time, ps.end_time,
                 (SELECT COUNT(*) FROM practice_rsvp pr WHERE pr.session_id = ps.id AND pr.status = 'yes') as yes_count,
                 (SELECT status FROM practice_rsvp pr2 WHERE pr2.session_id = ps.id AND pr2.player_id = ?) as my_rsvp
          FROM practice_sessions ps
-         WHERE ps.session_date >= date('now') AND ps.session_date <= date('now', '+28 days') AND ps.cancelled = 0
-         ORDER BY ps.session_date ASC`
+         WHERE ps.session_date >= date('now', '-3 days')
+           AND ps.session_date <= date('now', '+35 days')
+           AND ps.cancelled = 0
+         ORDER BY ps.session_date ASC, ps.start_time ASC`
       ).bind(session.player_id).all<UpcomingPractice>()).results;
 
+      const practices = filterPracticeSessionsStillOnSchedule(practiceRows);
       for (const p of practices) {
         allEvents.push({ kind: "practice", date: p.session_date, data: p });
       }

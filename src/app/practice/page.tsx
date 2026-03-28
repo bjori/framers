@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { PracticeRsvpWithCount, PracticeRsvp } from "@/components/practice-rsvp";
+import { filterPracticeSessionsStillOnSchedule, recentEndedPracticeSessions } from "@/lib/practice-schedule";
 
 interface PracticeSession {
   id: string;
@@ -25,31 +26,21 @@ export default async function PracticePage() {
 
   const db = await getDB();
 
-  const upcoming = (
+  const practiceCandidates = (
     await db.prepare(
       `SELECT ps.*, t.name as team_name,
               (SELECT COUNT(*) FROM practice_rsvp pr WHERE pr.session_id = ps.id AND pr.status = 'yes') as yes_count,
               (SELECT COUNT(*) FROM practice_rsvp pr WHERE pr.session_id = ps.id AND pr.status = 'maybe') as maybe_count
        FROM practice_sessions ps
        JOIN teams t ON t.id = ps.team_id
-       WHERE ps.session_date >= date('now', '-1 day')
-       ORDER BY ps.session_date ASC
-       LIMIT 16`
+       WHERE ps.session_date >= date('now', '-60 days')
+       ORDER BY ps.session_date ASC, ps.start_time ASC
+       LIMIT 120`
     ).all<PracticeSession>()
   ).results;
 
-  const past = (
-    await db.prepare(
-      `SELECT ps.*, t.name as team_name,
-              (SELECT COUNT(*) FROM practice_rsvp pr WHERE pr.session_id = ps.id AND pr.status = 'yes') as yes_count,
-              (SELECT COUNT(*) FROM practice_rsvp pr WHERE pr.session_id = ps.id AND pr.status = 'maybe') as maybe_count
-       FROM practice_sessions ps
-       JOIN teams t ON t.id = ps.team_id
-       WHERE ps.session_date < date('now', '-1 day')
-       ORDER BY ps.session_date DESC
-       LIMIT 4`
-    ).all<PracticeSession>()
-  ).results;
+  const upcoming = filterPracticeSessionsStillOnSchedule(practiceCandidates).slice(0, 16);
+  const past = recentEndedPracticeSessions(practiceCandidates, 4);
 
   const myRsvps = (
     await db.prepare(
