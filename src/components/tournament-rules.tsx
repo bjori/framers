@@ -71,6 +71,21 @@ export function TournamentRules() {
         </ul>
       </Section>
 
+      <Section title="Prize pool & payouts">
+        <ul className="list-disc list-inside space-y-2">
+          <li>
+            Entry is <strong>$40 per player</strong>: <strong>$30</strong> goes into the prize pool and{" "}
+            <strong>$10</strong> is held as a no-show buffer (separate from the payout split below).
+          </li>
+          <li>
+            <strong>Champion receives 80% of the prize pool.</strong>
+          </li>
+          <li>
+            <strong>Last place receives 20% of the prize pool</strong> — we split the pot between first and last on purpose.
+          </li>
+        </ul>
+      </Section>
+
       <Section title="Registration & Fees">
         <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3">
           <p className="text-sm text-emerald-800 dark:text-emerald-200">

@@ -1,6 +1,21 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { emailTemplate } from "@/lib/email";
 
+/** Singles championship — matches product copy & .cursor/domain knowledge */
+export const SINGLES_CHAMPIONSHIP_PRIZE = {
+  entryUsd: 40,
+  /** Portion of each entry that funds the prize pool */
+  prizePoolPortionUsd: 30,
+  /** Held back as no-show buffer (not part of winner/last split) */
+  noShowBufferUsd: 10,
+  winnerPct: 80,
+  lastPlacePct: 20,
+} as const;
+
+function tournamentUsesSinglesPrizeCopy(slug: string): boolean {
+  return slug.startsWith("singles-championship-");
+}
+
 interface TournamentMatch {
   id: string;
   week: number;
@@ -16,6 +31,7 @@ interface TournamentMatch {
   p1_player_id: string;
   p2_player_id: string;
   scheduled_date: string | null;
+  is_forfeit: number;
 }
 
 interface Standing {
@@ -85,6 +101,12 @@ export interface DigestData {
   winlessPlayers: { name: string; wins: number; losses: number }[];
   digestKind: "weekly" | "season_finale";
   emailSubject: string;
+  /** Completed non-bye matches (for reliability stats) */
+  completedMatchesRecorded: number;
+  /** Matches marked forfeit in the app */
+  forfeitMatchesRecorded: number;
+  /** HTML callout for prize rules; null when not applicable */
+  prizePayoutHtml: string | null;
 }
 
 function parseScore(s: string | null): number[] {
@@ -182,6 +204,35 @@ function lastPlaceLocked(standings: Standing[], allMatches: TournamentMatch[]): 
   return false;
 }
 
+function buildPrizePayoutHtml(tournamentSlug: string): string | null {
+  if (!tournamentUsesSinglesPrizeCopy(tournamentSlug)) return null;
+  const p = SINGLES_CHAMPIONSHIP_PRIZE;
+  return `<div style="margin: 0 0 20px 0; padding: 16px 18px; background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 12px;">
+    <p style="margin: 0 0 8px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #047857;">Prize pool</p>
+    <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #14532d;">
+      Each player&apos;s <strong>$${p.entryUsd} registration</strong> includes <strong>$${p.prizePoolPortionUsd}</strong> toward the prize pool and <strong>$${p.noShowBufferUsd}</strong> held as a no-show buffer (separate from the split below).
+    </p>
+    <p style="margin: 12px 0 0 0; font-size: 14px; line-height: 1.6; color: #14532d;">
+      <strong>Champion earns ${p.winnerPct}% of the prize pool.</strong> <strong>Last place earns ${p.lastPlacePct}% of the prize pool</strong> — we split it between the top and the bottom on purpose.
+    </p>
+  </div>`;
+}
+
+function buildReliabilityHtml(forfeitCount: number, completedCount: number): string {
+  let fact: string;
+  if (forfeitCount === 0) {
+    fact = `<strong>Zero matches</strong> were recorded as forfeits in the app${completedCount > 0 ? ` out of <strong>${completedCount}</strong> completed` : ""} — everyone showed up and played it out.`;
+  } else if (forfeitCount === 1) {
+    fact = `Only <strong>one match</strong> was recorded as a forfeit in the app${completedCount > 0 ? ` (${completedCount} matches completed overall)` : ""} — an incredible run of reliability.`;
+  } else {
+    fact = `<strong>${forfeitCount}</strong> matches were recorded as forfeits this season${completedCount > 0 ? ` (${completedCount} matches completed)` : ""}.`;
+  }
+  return `<div style="margin: 0 0 20px 0; padding: 16px 18px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 12px;">
+    <p style="margin: 0 0 8px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #b45309;">Greenbrook pride</p>
+    <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #78350f;">${fact} Huge credit to every player — and to the organizers for running a season this smooth.</p>
+  </div>`;
+}
+
 export async function gatherDigestData(db: D1Database, tournamentSlug: string): Promise<DigestData | null> {
   const tournament = await db.prepare(
     "SELECT id, name, slug FROM tournaments WHERE slug = ? AND status = 'active'"
@@ -197,7 +248,7 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
   const allMatches = (await db.prepare(
     `SELECT tm.id, tm.week, tm.participant1_id, tm.participant2_id,
             tm.winner_participant_id, tm.score1_sets, tm.score2_sets,
-            tm.status, tm.updated_at, tm.scheduled_date,
+            tm.status, tm.updated_at, tm.scheduled_date, tm.is_forfeit,
             tm.pre_match_quip, tm.win_probability,
             p1.name as p1_name, p2.name as p2_name,
             tp1.player_id as p1_player_id, tp2.player_id as p2_player_id
@@ -212,6 +263,10 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
 
   const totalWeeks = Math.max(...allMatches.map((m) => m.week), 0);
   const completedMatches = allMatches.filter((m) => m.status === "completed");
+  const completedMatchesRecorded = completedMatches.length;
+  const forfeitMatchesRecorded = completedMatches.filter((m) => m.is_forfeit === 1).length;
+  const prizePayoutHtml = buildPrizePayoutHtml(tournament.slug);
+
   const seasonComplete =
     allMatches.length > 0 && allMatches.every((m) => m.status === "completed");
 
@@ -355,6 +410,9 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
     winlessPlayers,
     digestKind,
     emailSubject,
+    completedMatchesRecorded,
+    forfeitMatchesRecorded,
+    prizePayoutHtml,
   };
 }
 
@@ -389,6 +447,12 @@ export async function generateDigestNarrative(data: DigestData): Promise<string>
         standings: standingsPayload,
         finalWeekResults: resultsPayload,
         deadRubberMatchesRemaining: data.deadRubberMatchesRemaining,
+        completedMatchesRecorded: data.completedMatchesRecorded,
+        forfeitMatchesRecorded: data.forfeitMatchesRecorded,
+        prizeSplitSummary:
+          data.prizePayoutHtml != null
+            ? `Champion ${SINGLES_CHAMPIONSHIP_PRIZE.winnerPct}% of prize pool; last place ${SINGLES_CHAMPIONSHIP_PRIZE.lastPlacePct}% (dollar amounts appear elsewhere in the email — do not invent figures)`
+            : null,
         undefeatedChampion: data.undefeatedChampion,
         winlessPlayers: data.winlessPlayers.map((w) => w.name),
         biggestUpset: data.biggestUpset
@@ -406,32 +470,36 @@ export async function generateDigestNarrative(data: DigestData): Promise<string>
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "gpt-4o-mini",
-          temperature: 0.92,
-          max_tokens: 900,
+          temperature: 0.95,
+          max_tokens: 1100,
           messages: [
             {
               role: "system",
-              content: `You are the lead voice of the Greenbrook Singles World Championships — think ESPN Finals night meets neighborhood block party. The season is OVER. This is the season-ending wrap-up email to everyone who played.
+              content: `You are the lead voice of the Greenbrook Singles World Championships — think ESPN Finals night meets the best block party in San Ramon. The season is OVER. This is the season-ending email to every player.
 
-Your tone must be electric, warm, and genuinely celebratory. First names only for players. No emojis. No mockery.
+Your tone must be **electric**: maximum hype, gratitude, and pride in this community. Celebrate how hard everyone worked. Thank the organizers explicitly — they earned it. Tease the **next** championships: everyone should come back, bring the same energy, tell a friend. First names only for players. No emojis. No mockery.
 
 If deadRubberMatchesRemaining is greater than 0, add one short honest sentence early: the title and last place are decided, but one or more matches remain that can still affect middle-of-the-pack standings. Do not claim every match has been played.
+
+Use forfeitMatchesRecorded and completedMatchesRecorded: celebrate how rare it is to run a full round robin with this level of reliability (if forfeit count is 0 or 1, lean all the way in). If numbers are higher, stay positive about the season overall.
+
+If prizeSplitSummary is not null, weave in one sentence that the champion and last-place payouts follow the published split (percentages only — do not quote dollar amounts).
 
 Required structure — use these exact H3 headers in order:
 
 ### And the champion is…
-Open with MAXIMUM hype for the undefeated champion (if undefeatedChampion is provided: zero losses, perfect season). If for some reason there is no undefeated player, still celebrate the #1 finisher in standings with equal enthusiasm. This section should be the longest and most excited — banners, legacy, perfection, neighborhood legend energy.
+Open with MAXIMUM hype for the undefeated champion (if undefeatedChampion is provided: zero losses, perfect season). If there is no undefeated player, still celebrate the #1 finisher in standings with equal enthusiasm. This section should be the longest and most excited — legacy, perfection, neighborhood legend energy.
 
 ### Season standouts
-Call out several other great stories from the standings: strong records, comeback seasons, tight races, memorable upsets, or anyone who made the league more fun. Spread the love across multiple players.
+Call out several great stories from the standings: strong records, comeback seasons, tight races, memorable upsets, or anyone who made the league more fun. Spread the love across multiple players.
 
 ### Hats off to our battlers
-The player(s) listed in winlessPlayers went winless through the full season — congratulate them sincerely for showing up every week, taking the tough matches, and keeping the round robin honest. Frame it as grit and heart, never shame. If winlessPlayers is empty, skip this section entirely (do not include the header).
+The player(s) listed in winlessPlayers went winless through the full season — congratulate them sincerely for showing up, taking the tough matches, and keeping the round robin honest. Frame it as grit and heart, never shame. If winlessPlayers is empty, skip this section entirely (do not include the header).
 
 ### That's a wrap
-One short closing paragraph: gratitude for the season, the courts, and each other.
+Two paragraphs under this header: (1) Big gratitude — the courts, the banter, the effort everyone put in; thank the organizers; nod to reliability stats if they help the story. (2) Close with a surge of excitement for **next year's** Greenbrook Singles World Championships — the bar is set, the rivalries are real, see you there.
 
-Keep it under 450 words. HTML only: <h3>, <p>, <strong> tags.`,
+Keep it under 520 words. HTML only: <h3>, <p>, <strong> tags.`,
             },
             { role: "user", content: JSON.stringify(prompt) },
           ],
@@ -635,10 +703,16 @@ export function buildDigestEmailHtml(data: DigestData, narrative: string): strin
         : "Season finale — full round robin in the books"
       : `${data.results.length} match${data.results.length !== 1 ? "es" : ""} completed this week`;
 
+  const finalePrizeAndReliability =
+    data.digestKind === "season_finale"
+      ? `${data.prizePayoutHtml ?? ""}${data.completedMatchesRecorded > 0 ? buildReliabilityHtml(data.forfeitMatchesRecorded, data.completedMatchesRecorded) : ""}`
+      : "";
+
   const content = `
     ${finaleHero}
     <h2 style="margin: 0 0 4px 0; font-size: 20px; color: #0c4a6e;">${data.weekLabel}</h2>
     <p style="margin: 0 0 20px 0; font-size: 13px; color: #94a3b8;">${subline}</p>
+    ${finalePrizeAndReliability}
     ${narrative ? `<div style="margin: 0 0 8px 0; font-size: 14px; line-height: 1.7; color: #334155;">${narrative}</div><hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">` : ""}
     ${resultsHtml}
     ${standingsHtml}
