@@ -1,4 +1,7 @@
 {
+  // RESEND_API_KEY must be set on THIS worker separately from greenbrook-framers
+  // (Cloudflare does not copy secrets between workers). See cloudflare-deployment.mdc.
+  //   pbpaste | ../scripts/set-email-worker-resend.sh   (from repo root, after copying key from Resend)
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "framers-email-router",
   "main": "src/index.ts",

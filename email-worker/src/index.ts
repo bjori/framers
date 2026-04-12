@@ -1,3 +1,10 @@
+/**
+ * Inbound email router: replies to seniors@ / juniors@ / singles@ are fanned out
+ * to roster members via Resend batch API. Requires RESEND_API_KEY on **framers-email-router**
+ * (same key as main app is fine) — it is NOT inherited from greenbrook-framers; set with:
+ *   pbpaste | ./scripts/set-email-worker-resend.sh
+ * See cloudflare-deployment.mdc.
+ */
 import PostalMime from "postal-mime";
 
 interface Env {

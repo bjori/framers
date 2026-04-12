@@ -15,6 +15,20 @@ alwaysApply: false
 | `framers-email-router` | Inbound email forwarding | Email routing rules |
 | `tennisrecord-proxy` | Dev-only proxy for tennisrecord.com (bypasses local WiFi block) | HTTP (workers.dev) |
 
+### `framers-email-router` — set `RESEND_API_KEY` on this worker too
+
+Inbound replies (e.g. to `juniors@framers.app`) are forwarded with Resend’s batch API from **this** worker. Cloudflare **does not** copy secrets from `greenbrook-framers`; if `RESEND_API_KEY` is missing, Resend returns `401 API key is invalid` and `list_reply_forwarded_failed` is logged.
+
+Use the **same** API key as the main app ([Resend API keys](https://resend.com/api-keys)):
+
+```bash
+chmod +x scripts/set-email-worker-resend.sh
+pbpaste | ./scripts/set-email-worker-resend.sh
+```
+
+Or: `cd email-worker && npx wrangler secret put RESEND_API_KEY`  
+Verify: `cd email-worker && npx wrangler secret list` (should list `RESEND_API_KEY`).
+
 ## Secrets (on `greenbrook-framers`)
 
 - `RESEND_API_KEY` — Resend email API key
