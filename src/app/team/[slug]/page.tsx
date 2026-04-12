@@ -5,11 +5,8 @@ import { TeamTabs } from "@/components/team-tabs";
 import { LineupChat } from "@/components/lineup-chat";
 import { NextMatchCard, type NextMatchData } from "@/components/next-match-card";
 import { Suspense } from "react";
-import {
-  expectedStarterPositions,
-  vacantStarterPositionsFromPayload,
-  describeVacantStarterLines,
-} from "@/lib/lineup-positions";
+import { expectedStarterPositions } from "@/lib/lineup-positions";
+import { starterFormatFromTeamJson, vacantLinesLabelFromStarterSlots } from "@/lib/lineup-vacancy";
 
 interface LeagueMatch {
   id: string;
@@ -70,8 +67,7 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
       .all<TeamMember>()
   ).results;
 
-  const format = JSON.parse(team.match_format || "{}");
-  const starterFormat = { singles: format.singles ?? 1, doubles: format.doubles ?? 3 };
+  const starterFormat = starterFormatFromTeamJson(team.match_format || "{}");
   const totalLines = starterFormat.singles + starterFormat.doubles;
   const wins = matches.filter((m) => m.team_result === "win").length;
   const losses = matches.filter((m) => m.team_result === "loss").length;
@@ -119,14 +115,12 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
           .bind(lineup.id)
           .all<{ position: string; player_name: string | null; player_id: string | null; acknowledged: number | null }>()
       ).results;
-      const byPos = new Map(rawSlots.map((r) => [r.position, r]));
-      const slotsForVacancy = expectedStarterPositions(starterFormat).map((position) => ({
-        position,
-        playerId: byPos.get(position)?.player_id ?? null,
-      }));
-      const vacant = vacantStarterPositionsFromPayload(slotsForVacancy, starterFormat);
-      if (vacant.length > 0) vacantLinesLabel = describeVacantStarterLines(vacant);
+      vacantLinesLabel = vacantLinesLabelFromStarterSlots(
+        rawSlots.map((r) => ({ position: r.position, player_id: r.player_id })),
+        starterFormat,
+      );
 
+      const byPos = new Map(rawSlots.map((r) => [r.position, r]));
       lineupSlots = expectedStarterPositions(starterFormat).map((position) => {
         const r = byPos.get(position);
         return {

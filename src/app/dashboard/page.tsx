@@ -5,6 +5,8 @@ import CalendarSubscribe from "@/components/calendar-subscribe";
 import { DashboardRsvp } from "@/components/dashboard-rsvp";
 import DashboardPracticeCard from "@/components/dashboard-practice-card";
 import { filterPracticeSessionsStillOnSchedule } from "@/lib/practice-schedule";
+import { vacantLinesLabelForLeagueMatch } from "@/lib/lineup-vacancy";
+import { personalShorthandedPlea } from "@/lib/league-shorthanded-copy";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,8 @@ interface UpcomingLeagueMatch {
   lineup_status: string | null;
   lineup_position: string | null;
   lineup_acknowledged: number | null;
+  match_format: string;
+  vacant_lines_label: string | null;
 }
 
 interface UnscoredMatch {
@@ -108,12 +112,13 @@ export default async function DashboardPage() {
         .all<UpcomingTournamentMatch>()
     ).results;
 
-    leagueMatches = (
+    const leagueRows = (
       await db
         .prepare(
           `SELECT lm.id as match_id, te.name as team_name, te.slug as team_slug,
                   lm.opponent_team, lm.match_date, lm.match_time,
                   lm.location, lm.is_home, lm.notes,
+                  te.match_format as match_format,
                   a.status as rsvp_status,
                   CASE
                     WHEN ls.is_alternate = -1 THEN 'withdrawn'
@@ -134,8 +139,17 @@ export default async function DashboardPage() {
            ORDER BY lm.match_date ASC`
         )
         .bind(session.player_id, session.player_id, session.player_id)
-        .all<UpcomingLeagueMatch>()
+        .all<
+          Omit<UpcomingLeagueMatch, "vacant_lines_label"> & { match_format: string }
+        >()
     ).results;
+
+    leagueMatches = await Promise.all(
+      leagueRows.map(async (m) => ({
+        ...m,
+        vacant_lines_label: await vacantLinesLabelForLeagueMatch(db, m.match_id, m.match_format),
+      })),
+    );
 
     pendingRsvpCount = leagueMatches.filter((m) => {
       const confirmed = !!(m.notes && m.notes.trim());
@@ -227,7 +241,25 @@ export default async function DashboardPage() {
   }
 
   const hasUpcoming = allEvents.length > 0;
-  const hasActionItems = pendingRsvpCount > 0 || unscoredMatches.length > 0 || owedFees.length > 0 || ustaNeeded.length > 0;
+  const shorthandedPersonalPleas = leagueMatches.filter(
+    (m) =>
+      m.vacant_lines_label &&
+      (m.rsvp_status === "no" || m.rsvp_status === "maybe") &&
+      m.lineup_status !== "selected",
+  );
+  const shorthandedFyi = leagueMatches.filter(
+    (m) =>
+      m.vacant_lines_label &&
+      m.lineup_status !== "selected" &&
+      m.rsvp_status === "yes",
+  );
+  const hasActionItems =
+    pendingRsvpCount > 0 ||
+    unscoredMatches.length > 0 ||
+    owedFees.length > 0 ||
+    ustaNeeded.length > 0 ||
+    shorthandedPersonalPleas.length > 0 ||
+    shorthandedFyi.length > 0;
 
   return (
     <div className="space-y-6">
@@ -291,6 +323,40 @@ export default async function DashboardPage() {
                 </a>
               </div>
             ))}
+            {shorthandedPersonalPleas.map((m) => (
+              <div
+                key={`short-${m.match_id}`}
+                className="text-sm rounded-lg border border-danger/40 bg-danger/10 dark:bg-danger/20 px-3 py-2.5 text-danger dark:text-red-100"
+              >
+                <p className="font-bold text-danger dark:text-red-50">We may default without you</p>
+                <p className="mt-1 font-semibold text-slate-900 dark:text-slate-100">
+                  {m.team_name}: vs {m.opponent_team} — <span className="text-danger dark:text-red-200">{m.vacant_lines_label}</span> still open
+                </p>
+                <p className="mt-1.5 text-slate-800 dark:text-slate-200 leading-snug">
+                  {personalShorthandedPlea(m.match_id, m.opponent_team, m.vacant_lines_label!)}
+                </p>
+                <Link
+                  href={`/team/${m.team_slug}/match/${m.match_id}`}
+                  className="inline-block mt-2 text-xs font-bold bg-danger text-white px-2.5 py-1.5 rounded hover:opacity-90 transition-opacity"
+                >
+                  Open match and update RSVP
+                </Link>
+              </div>
+            ))}
+            {shorthandedFyi.map((m) => (
+              <p key={`fyi-${m.match_id}`} className="text-sm">
+                <Link
+                  href={`/team/${m.team_slug}/match/${m.match_id}`}
+                  className="text-sky-700 dark:text-sky-400 hover:underline font-semibold"
+                >
+                  {m.team_name} vs {m.opponent_team}
+                </Link>
+                <span className="text-slate-700 dark:text-slate-300">
+                  {" "}
+                  — still short on <strong>{m.vacant_lines_label}</strong>. Help remind teammates to RSVP Yes if they can play.
+                </span>
+              </p>
+            ))}
           </div>
         </section>
       )}
@@ -343,12 +409,46 @@ export default async function DashboardPage() {
                 const confirmed = !!(m.notes && m.notes.trim());
                 const faded = m.rsvp_status === "no" && !m.lineup_status;
                 const needsRsvp = confirmed && !m.rsvp_status;
+                const showPleaOnRow =
+                  !!m.vacant_lines_label &&
+                  (m.rsvp_status === "no" || m.rsvp_status === "maybe") &&
+                  m.lineup_status !== "selected";
+                const showTeamShortNote =
+                  !!m.vacant_lines_label && !showPleaOnRow && m.lineup_status !== "selected";
                 return (
                   <div
                     key={`l-${m.match_id}`}
-                    className={`flex items-center overflow-hidden rounded-lg bg-slate-50 dark:bg-slate-800/50 transition-colors ${faded ? "opacity-40" : "hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+                    className="overflow-hidden rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80"
                   >
-                    <Link href={`/team/${m.team_slug}/match/${m.match_id}`} className="flex items-center gap-2 flex-1 min-w-0 p-3">
+                    {showPleaOnRow && (
+                      <div
+                        role="alert"
+                        className="px-3 py-2.5 sm:px-4 border-b border-danger/30 bg-danger/10 dark:bg-danger/20 text-sm text-slate-900 dark:text-slate-100"
+                      >
+                        <p className="font-bold text-danger dark:text-red-100">Captain SOS: we need players for this match</p>
+                        <p className="mt-1 leading-snug text-slate-800 dark:text-slate-200">
+                          {personalShorthandedPlea(m.match_id, m.opponent_team, m.vacant_lines_label!)}
+                        </p>
+                        <Link
+                          href={`/team/${m.team_slug}/match/${m.match_id}`}
+                          className="inline-block mt-2 text-xs font-bold text-danger dark:text-red-200 hover:underline"
+                        >
+                          Update RSVP on match page →
+                        </Link>
+                      </div>
+                    )}
+                    {showTeamShortNote && (
+                      <div className="px-3 py-2 text-xs border-b border-amber-200/80 dark:border-amber-800/50 bg-amber-50/90 dark:bg-amber-950/30 text-amber-950 dark:text-amber-100">
+                        <strong>Team is shorthanded:</strong> {m.vacant_lines_label} still open — nudge anyone who can flip to Yes.
+                      </div>
+                    )}
+                    <div
+                      className={`flex items-center transition-colors ${faded ? "" : "hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+                    >
+                    <Link
+                      href={`/team/${m.team_slug}/match/${m.match_id}`}
+                      className={`flex items-center gap-2 flex-1 min-w-0 p-3 ${faded ? "opacity-40" : ""}`}
+                    >
                       {m.lineup_status === "selected" ? (
                         <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shrink-0 ring-2 ring-sky-300 dark:ring-sky-700" title="In Lineup" />
                       ) : m.lineup_status === "alternate" ? (
@@ -417,6 +517,7 @@ export default async function DashboardPage() {
                         <DashboardRsvp slug={m.team_slug} matchId={m.match_id} />
                       </>
                     )}
+                    </div>
                   </div>
                 );
               }

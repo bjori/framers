@@ -11,6 +11,7 @@ import { LineupChat } from "@/components/lineup-chat";
 import { OpponentScouting } from "@/components/opponent-scouting";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { displayLeagueMatchLocation } from "@/lib/league-venues";
+import { vacantLinesLabelForLeagueMatch } from "@/lib/lineup-vacancy";
 
 interface RsvpResponse {
   player_id: string;
@@ -104,6 +105,9 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
   const session = await getSession();
   const isAdmin = session?.is_admin === 1;
   const isPast = match.status === "completed";
+  const vacantLinesLabel = !isPast
+    ? await vacantLinesLabelForLeagueMatch(db, id, team.match_format || "{}")
+    : null;
   const yesCount = rsvps.filter((r) => r.status === "yes").length;
   const maybeCount = rsvps.filter((r) => r.status === "maybe").length;
   const neededPlayers = format.singles + format.doubles * 2;
@@ -211,6 +215,21 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
           </p>
         )}
       </div>
+
+      {!isPast && vacantLinesLabel && session && (isActiveTeamMember || isCaptain || isAdmin) && (
+        <div
+          role="alert"
+          className="rounded-xl border border-danger/40 bg-danger/10 dark:bg-danger/20 px-4 py-3.5 text-sm text-slate-900 dark:text-slate-100"
+        >
+          <p className="font-bold text-danger dark:text-red-100">We need more players on this card</p>
+          <p className="mt-1.5 leading-snug">
+            <strong>{vacantLinesLabel}</strong> still has open spot(s). In USTA league play that usually means a{" "}
+            <strong>default</strong> unless we fill the lineup. Please update your RSVP to <strong>Yes</strong> if you can
+            make it (even as a backup), or keep <strong>No</strong> only when you truly cannot — so captains are not
+            guessing the night before.
+          </p>
+        </div>
+      )}
 
       {/* Match logistics */}
       <div className="bg-surface-alt rounded-xl border border-border p-4 space-y-2">
