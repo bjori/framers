@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getDB } from "@/lib/db";
+import { predictMatchOutcome } from "@/lib/tennisrecord";
 
 export interface LineInsight {
   position: string;
@@ -118,14 +119,30 @@ export async function generateMatchPreview(matchId: string): Promise<MatchPrevie
     }
   }
 
-  // Opponent scouting data if available
+  // Opponent scouting data if available (pool for TR matchup model)
   const oppPlayers = (await db.prepare(
-    `SELECT player_name, tr_dynamic_rating, season_record, current_streak
-     FROM tr_players WHERE team_name LIKE ? ORDER BY tr_dynamic_rating DESC LIMIT 7`
+    `SELECT player_name, tr_rating, tr_dynamic_rating, season_record, current_streak
+     FROM tr_players WHERE team_name LIKE ? ORDER BY COALESCE(tr_dynamic_rating, tr_rating) DESC LIMIT 12`
   ).bind(`%${match.opponent_team}%`).all<{
-    player_name: string; tr_dynamic_rating: number | null;
+    player_name: string; tr_rating: number | null; tr_dynamic_rating: number | null;
     season_record: string | null; current_streak: string | null;
   }>()).results;
+
+  const trCompetitiveness =
+    oppPlayers.length > 0
+      ? predictMatchOutcome(
+          slots.map((s) => ({
+            position: s.position,
+            playerName: s.name,
+            trRating: s.tennisrecord_rating,
+          })),
+          oppPlayers.map((p) => ({
+            name: p.player_name,
+            trRating: p.tr_rating,
+            trDynamicRating: p.tr_dynamic_rating,
+          })),
+        )
+      : null;
 
   // Check if first away game
   const awayCount = (await db.prepare(
@@ -166,12 +183,24 @@ export async function generateMatchPreview(matchId: string): Promise<MatchPrevie
     lineupStatus: lineup.lineup_status,
     lineup: lineData,
     opponentScouting: oppPlayers.length > 0
-      ? oppPlayers.map((p) => ({
+      ? oppPlayers.slice(0, 7).map((p) => ({
           name: p.player_name,
-          rating: p.tr_dynamic_rating,
+          rating: p.tr_dynamic_rating ?? p.tr_rating,
           record: p.season_record,
           streak: p.current_streak,
         }))
+      : null,
+    trCompetitiveness: trCompetitiveness
+      ? {
+          expectedOurPoints: trCompetitiveness.expectedScore,
+          predictedPointMargin: trCompetitiveness.predictedResult,
+          lines: trCompetitiveness.linePredictions.map((l) => ({
+            position: l.position,
+            ourPlayer: l.ourPlayer,
+            oppPlayer: l.oppPlayer,
+            ourWinProbabilityPct: Math.round(l.winProbability * 100),
+          })),
+        }
       : null,
   };
 
@@ -189,6 +218,8 @@ For lineInsights, generate exactly one entry per doubles position (combining bot
 - Rating mismatches vs likely opponents
 - First away game of the season
 - Interesting narratives (comeback stories, reliable anchors, etc.)
+
+When "trCompetitiveness" is present in the payload, it is a rough TennisRecord-based model (expectedOurPoints out of 6 team points, predictedPointMargin like "3-3", per-line ourWinProbabilityPct vs assumed opponent strength order). Use it in the quip and lineInsights for "on paper" / toss-up / edge language — never as a fact or guarantee. When trCompetitiveness is null, do not invent numeric predictions.
 
 Keep each insight to one sentence, under 20 words. Use first names only. Be entertaining but not cheesy. No emojis.`;
 
