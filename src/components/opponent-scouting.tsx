@@ -52,7 +52,37 @@ export function OpponentScouting({ opponentTeam, ourTeamSlug }: { opponentTeam: 
   }, [opponentTeam, ourTeamSlug]);
 
   if (loading) return <div className="text-sm text-slate-400 animate-pulse">Loading opponent scouting...</div>;
-  if (error || !report || report.players.length === 0) return null;
+  if (error) return <div className="text-sm text-rose-500 dark:text-rose-400">{error}</div>;
+  if (!report) return null;
+
+  if (report.players.length === 0) {
+    return (
+      <section className="space-y-2 rounded-xl border border-border bg-surface-alt p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Opponent Scouting</h2>
+          <a
+            href={`https://www.tennisrecord.com/adult/teamprofile.aspx?year=2026&teamname=${encodeURIComponent(opponentTeam)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] font-semibold text-sky-600 hover:text-sky-500 flex items-center gap-1"
+          >
+            TennisRecord
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </a>
+        </div>
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          No TennisRecord roster is cached for this opponent yet. TennisRecord sometimes shows an empty team page until the season populates. Try{" "}
+          <strong className="text-slate-800 dark:text-slate-200">Scout</strong> on{" "}
+          <a href="/admin/scouting" className="font-semibold text-sky-600 hover:text-sky-500">
+            Admin → Scouting
+          </a>
+          , or open TennisRecord to confirm they list players for this exact team name.
+        </p>
+      </section>
+    );
+  }
 
   const bestRating = Math.max(...report.players.map((p) => p.tr_dynamic_rating ?? p.tr_rating ?? 0));
 

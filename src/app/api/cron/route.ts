@@ -338,9 +338,11 @@ export async function GET(request: NextRequest) {
     let preMatchScouting: Parameters<typeof generatePreMatchCommentary>[0]["scouting"];
     try {
       const { getCachedTeam, getHeadToHead, predictMatchOutcome } = await import("@/lib/tr-scouting");
+      const { tennisRecordTeamNameFromDisplayName } = await import("@/lib/tr-team-aliases");
       const oppPlayers = await getCachedTeam(match.opponent_team);
       if (oppPlayers.length > 0) {
-        const h2h = await getHeadToHead("GREENBROOK RS 40AM3.0A", match.opponent_team);
+        const ourTrTeam = tennisRecordTeamNameFromDisplayName(match.team_name);
+        const h2h = await getHeadToHead(ourTrTeam, match.opponent_team);
         const prediction = predictMatchOutcome(
           lineupForCommentary.map((l) => ({ position: l.position, playerName: l.name, trRating: null })),
           oppPlayers.map((p) => ({ name: p.player_name, trRating: p.tr_rating, trDynamicRating: p.tr_dynamic_rating })),
@@ -552,6 +554,7 @@ export async function GET(request: NextRequest) {
   // 5.5 TennisRecord scouting: quick-scout just-completed opponents + deep-scout upcoming
   try {
     const { quickScoutOpponent, scoutOpponent, scoutOwnTeam, isCacheFresh } = await import("@/lib/tr-scouting");
+    const { tennisRecordTeamNameFromDisplayName, OUR_TENNISRECORD_TEAM_NAMES } = await import("@/lib/tr-team-aliases");
 
     // Quick-scout any recently completed matches whose opponents aren't cached
     const justCompletedOpponents = (await db.prepare(
@@ -590,15 +593,9 @@ export async function GET(request: NextRequest) {
       "SELECT name FROM teams WHERE status IN ('active','upcoming') AND usta_team_id IS NOT NULL"
     ).all<{ name: string }>()).results;
 
-    // Map to TR team names via known mapping
-    const trNameMap: Record<string, string> = {
-      "Senior Framers 2026": "GREENBROOK RS 40AM3.0A",
-      "Junior Framers 2026": "GREENBROOK RS 18AM3.0A",
-    };
-
     for (const t of ownTeamNames) {
-      const trName = trNameMap[t.name];
-      if (!trName) continue;
+      const trName = tennisRecordTeamNameFromDisplayName(t.name);
+      if (!OUR_TENNISRECORD_TEAM_NAMES.includes(trName)) continue;
       const fresh = await isCacheFresh(trName);
       if (!fresh) {
         await scoutOwnTeam(trName, now.getFullYear());
@@ -714,9 +711,11 @@ export async function GET(request: NextRequest) {
     let postMatchScouting: Parameters<typeof generatePostMatchCommentary>[0]["scouting"];
     try {
       const { getCachedTeam, getHeadToHead } = await import("@/lib/tr-scouting");
+      const { tennisRecordTeamNameFromDisplayName } = await import("@/lib/tr-team-aliases");
       const oppPlayers = await getCachedTeam(match.opponent_team);
       if (oppPlayers.length > 0) {
-        const h2h = await getHeadToHead("GREENBROOK RS 40AM3.0A", match.opponent_team);
+        const ourTrTeam = tennisRecordTeamNameFromDisplayName(match.team_name);
+        const h2h = await getHeadToHead(ourTrTeam, match.opponent_team);
         postMatchScouting = {
           players: oppPlayers.map((p) => ({
             name: p.player_name,

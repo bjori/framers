@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { getDB } from "@/lib/db";
-import { scoutOpponent, scoutOwnTeam, getCachedTeam, type CachedPlayer } from "@/lib/tr-scouting";
+import { scoutOpponent, scoutOwnTeam, getCachedTeam } from "@/lib/tr-scouting";
+import { tennisRecordTeamNameFromDisplayName } from "@/lib/tr-team-aliases";
+import { emptyTeamRosterReason, fetchTennisRecord, parseTeamRoster } from "@/lib/tennisrecord";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -30,20 +32,39 @@ export async function POST(request: NextRequest) {
   try {
     const logs: string[] = [];
 
+    const scoutTargetName = body.isOwnTeam
+      ? tennisRecordTeamNameFromDisplayName(body.teamName)
+      : body.teamName;
+
     if (body.isOwnTeam) {
-      await scoutOwnTeam(body.teamName, year, {
+      await scoutOwnTeam(scoutTargetName, year, {
         force: body.force,
         onProgress: (p) => logs.push(`[${p.phase}] ${p.current}/${p.total} ${p.player ?? ""} ${p.error ?? ""}`),
       });
     } else {
-      await scoutOpponent(body.teamName, year, {
+      await scoutOpponent(scoutTargetName, year, {
         force: body.force,
         onProgress: (p) => logs.push(`[${p.phase}] ${p.current}/${p.total} ${p.player ?? ""} ${p.error ?? ""}`),
       });
     }
 
-    const cached = await getCachedTeam(body.teamName);
-    return NextResponse.json({ ok: true, teamName: body.teamName, playerCount: cached.length, logs });
+    const cached = await getCachedTeam(scoutTargetName);
+    let emptyHint: string | null = null;
+    if (cached.length === 0) {
+      const path = `/adult/teamprofile.aspx?year=${year}&teamname=${encodeURIComponent(scoutTargetName)}`;
+      const html = await fetchTennisRecord(path);
+      const parsed = html ? parseTeamRoster(html).length : 0;
+      emptyHint = emptyTeamRosterReason(html, parsed);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      teamName: body.teamName,
+      scoutTargetName,
+      playerCount: cached.length,
+      emptyHint,
+      logs,
+    });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
@@ -77,12 +98,13 @@ async function handleBackfillAll(year: number, force: boolean) {
 
   for (const team of allTeams) {
     try {
+      const scoutName = team.isOwn ? tennisRecordTeamNameFromDisplayName(team.name) : team.name;
       if (team.isOwn) {
-        await scoutOwnTeam(team.name, year, { force });
+        await scoutOwnTeam(scoutName, year, { force });
       } else {
-        await scoutOpponent(team.name, year, { force });
+        await scoutOpponent(scoutName, year, { force });
       }
-      const cached = await getCachedTeam(team.name);
+      const cached = await getCachedTeam(scoutName);
       results.push({ team: team.name, isOwn: team.isOwn, playerCount: cached.length });
 
       // 10-second delay between teams to avoid rate limits
@@ -131,17 +153,6 @@ export async function GET(request: NextRequest) {
     await db
       .prepare("SELECT name FROM teams WHERE status IN ('active','upcoming') AND usta_team_id IS NOT NULL")
       .all<{ name: string }>()
-  ).results;
-
-  // TennisRecord team names differ from our team names (e.g. "Senior Framers 2026" vs "GREENBROOK RS 40AM3.0A")
-  // Map our team names to TR team names via the teams table
-  const ownTeamTRNames = (
-    await db
-      .prepare(
-        `SELECT DISTINCT lm.opponent_team FROM league_matches lm
-         WHERE 1=0`
-      )
-      .all<{ opponent_team: string }>()
   ).results;
 
   const oppTeams = (

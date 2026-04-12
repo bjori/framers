@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Breadcrumb } from "@/components/breadcrumb";
+import { OUR_TENNISRECORD_TEAM_NAMES } from "@/lib/tr-team-aliases";
 
 interface TeamStat {
   team_name: string;
@@ -18,12 +19,6 @@ interface ScoutData {
   ownTeams: string[];
   oppTeams: string[];
 }
-
-// Known mapping of our team names to TennisRecord team names
-const OWN_TEAM_TR_NAMES: Record<string, string> = {
-  "Senior Framers 2026": "GREENBROOK RS 40AM3.0A",
-  "Junior Framers 2026": "GREENBROOK RS 18AM3.0A",
-};
 
 export default function ScoutingPage() {
   const router = useRouter();
@@ -66,9 +61,18 @@ export default function ScoutingPage() {
         }),
       });
 
-      const result = (await res.json()) as { ok?: boolean; playerCount?: number; logs?: string[]; error?: string };
+      const result = (await res.json()) as {
+        ok?: boolean;
+        playerCount?: number;
+        logs?: string[];
+        emptyHint?: string | null;
+        error?: string;
+      };
       if (result.ok) {
         setLog((prev) => [...prev, `Done: ${teamName} — ${result.playerCount} players`]);
+        if (result.playerCount === 0 && result.emptyHint) {
+          setLog((prev) => [...prev, String(result.emptyHint)]);
+        }
         if (result.logs) {
           setLog((prev) => [...prev, ...result.logs!.slice(-5)]);
         }
@@ -133,9 +137,9 @@ export default function ScoutingPage() {
   if (loading) return <div className="p-8 text-center text-slate-500">Loading...</div>;
 
   // Build a unified list of all teams (own + opponents) with their cached status
-  const ownTeamTRSet = new Set(Object.values(OWN_TEAM_TR_NAMES));
+  const ownTeamTRSet = new Set(OUR_TENNISRECORD_TEAM_NAMES);
   const allTeamNames = new Set<string>();
-  for (const name of Object.values(OWN_TEAM_TR_NAMES)) allTeamNames.add(name);
+  for (const name of OUR_TENNISRECORD_TEAM_NAMES) allTeamNames.add(name);
   if (data) {
     for (const t of data.oppTeams) allTeamNames.add(t);
     for (const ts of data.teamStats) allTeamNames.add(ts.team_name);
@@ -147,6 +151,10 @@ export default function ScoutingPage() {
     <div className="space-y-6">
       <Breadcrumb items={[{ label: "Admin", href: "/admin" }, { label: "TennisRecord Scouting" }]} />
       <h1 className="text-2xl font-bold">TennisRecord Scouting</h1>
+      <p className="text-sm text-slate-600 dark:text-slate-400 max-w-3xl">
+        Opponent names come from your schedule and must match TennisRecord exactly. A dash in <strong>Players</strong> usually means TennisRecord has not published a roster for that team/year yet (their site shows N/A only)—not a Framers bug. Use{" "}
+        <strong>Refresh</strong> after TR updates; check the log for details when a scout returns 0 players.
+      </p>
 
       <div className="flex gap-3">
         <button

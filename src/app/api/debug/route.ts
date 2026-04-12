@@ -496,13 +496,15 @@ export async function POST(request: NextRequest) {
       }
 
       const { scoutOpponent, scoutOwnTeam, getCachedTeam } = await import("@/lib/tr-scouting");
+      const { tennisRecordTeamNameFromDisplayName } = await import("@/lib/tr-team-aliases");
       try {
+        const scoutName = isOwn ? tennisRecordTeamNameFromDisplayName(teamName) : teamName;
         if (isOwn) {
-          await scoutOwnTeam(teamName, 2026, { force: true });
+          await scoutOwnTeam(scoutName, 2026, { force: true });
         } else {
-          await scoutOpponent(teamName, 2026, { force: true });
+          await scoutOpponent(scoutName, 2026, { force: true });
         }
-        const cached = await getCachedTeam(teamName);
+        const cached = await getCachedTeam(scoutName);
         return NextResponse.json({ ok: true, team: teamName, playerCount: cached.length });
       } catch (e) {
         return NextResponse.json({ ok: false, team: teamName, error: e instanceof Error ? e.message : String(e) }, { status: 500 });

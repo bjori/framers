@@ -78,48 +78,95 @@ export async function fetchTennisRecord(path: string): Promise<string | null> {
 
 // ── Layer 1: Team Profile ──────────────────────────────────────────
 
-export function parseTeamRoster(html: string): TRTeamPlayer[] {
+function normalizeProfilePath(href: string): string {
+  let profilePath = href.trim();
+  if (profilePath.startsWith("http")) {
+    try {
+      const u = new URL(profilePath);
+      profilePath = u.pathname + u.search;
+    } catch {
+      profilePath = "/adult/profile.aspx";
+    }
+  } else if (!profilePath.startsWith("/")) {
+    profilePath = "/" + profilePath;
+  }
+  return profilePath;
+}
+
+/** When TR has no roster yet, the team page is a short "stub" with N/A rows and no player links. */
+export function isTennisRecordTeamStubPage(html: string): boolean {
+  if (!html) return false;
+  if (/profile\.aspx\?playername=/i.test(html)) return false;
+  return (
+    /class="padding10">N\/A<\/td>/i.test(html) &&
+    !/<div class="large">/i.test(html) &&
+    !/<div class="small">/i.test(html)
+  );
+}
+
+/**
+ * Human-readable reason when scrapeTeamRoster returns [] (for admin UI / logs).
+ */
+export function emptyTeamRosterReason(html: string | null, parsedCount: number): string | null {
+  if (parsedCount > 0) return null;
+  if (!html) return "TennisRecord did not return a page (network, block, or error).";
+  if (isTennisRecordTeamStubPage(html)) {
+    return "TennisRecord has no roster for this team/year yet (their page shows N/A only). Nothing to import until TR lists players.";
+  }
+  if (!/profile\.aspx\?playername=/i.test(html)) {
+    return "TennisRecord page had no player profile links; the site layout may have changed.";
+  }
+  return null;
+}
+
+function parseTeamRosterSection(section: string): TRTeamPlayer[] {
   const players: TRTeamPlayer[] = [];
-
-  // Match each player row in the "large" desktop table (inside <div class="large">)
-  const largeSection = html.match(/<div class="large">([\s\S]*?)(?:<div class="small">|<div class="container-divider0">)/);
-  if (!largeSection) return players;
-  const section = largeSection[1];
-
-  // Each row: <a href="/adult/profile.aspx?playername=...">Name</a> or with &s=N for disambiguation
   const rowRegex = /<a\s+class="link"\s+href="([^"]*profile\.aspx\?[^"]+)">([^<]+)<\/a>[\s\S]*?<\/tr>/gi;
   let match;
   while ((match = rowRegex.exec(section)) !== null) {
     const row = match[0];
-    let profilePath = match[1].trim();
-    if (profilePath.startsWith("http")) {
-      try {
-        const u = new URL(profilePath);
-        profilePath = u.pathname + u.search;
-      } catch {
-        profilePath = "/adult/profile.aspx";
-      }
-    } else if (!profilePath.startsWith("/")) {
-      profilePath = "/" + profilePath;
-    }
+    const profilePath = normalizeProfilePath(match[1].trim());
     const name = match[2].trim();
 
-    // Extract all <td> content values from the row
     const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
     const cells: string[] = [];
     let td;
     while ((td = tdRegex.exec(row)) !== null) {
-      cells.push(td[1].replace(/<[^>]+>/g, "").trim());
+      cells.push(td[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
     }
 
-    // Cells: [name_cell, location, ntrp, seasonRecord, localSingles, localDoubles, localRecord, rating, ratingArrow]
-    // Name cell is cells[0] (contains the link text), so useful data starts from cells[1]
-    const ntrp = cells[2] || "";
-    const seasonRecord = cells[3] || "";
-    const localSingles = cells[4] || "";
-    const localDoubles = cells[5] || "";
-    const localRecord = cells[6] || "";
-    const ratingStr = cells[7] || "";
+    let ntrp: string;
+    let seasonRecord: string;
+    let localSingles: string;
+    let localDoubles: string;
+    let localRecord: string;
+    let ratingStr: string;
+
+    if (cells.length >= 8) {
+      // Desktop "large": name, location, ntrp, season, localS, localD, localRecord, rating, …
+      ntrp = cells[2] || "";
+      seasonRecord = cells[3] || "";
+      localSingles = cells[4] || "";
+      localDoubles = cells[5] || "";
+      localRecord = cells[6] || "";
+      ratingStr = cells[7] || "";
+    } else if (cells.length >= 6) {
+      // Mobile "small": name, location, ntrp, season, combined local column, rating, …
+      ntrp = cells[2] || "";
+      seasonRecord = cells[3] || "";
+      localSingles = "";
+      localDoubles = "";
+      localRecord = cells[4] || "";
+      ratingStr = cells[5] || "";
+    } else {
+      ntrp = cells[2] || "";
+      seasonRecord = cells[3] || "";
+      localSingles = "";
+      localDoubles = "";
+      localRecord = "";
+      ratingStr = cells[Math.min(5, cells.length - 1)] || "";
+    }
+
     const rating = ratingStr ? parseFloat(ratingStr) : null;
 
     players.push({
@@ -135,6 +182,23 @@ export function parseTeamRoster(html: string): TRTeamPlayer[] {
   }
 
   return players;
+}
+
+export function parseTeamRoster(html: string): TRTeamPlayer[] {
+  const largeSection = html.match(
+    /<div class="large">([\s\S]*?)(?:<div class="small">|<div class="container-divider0">)/i,
+  );
+  if (largeSection?.[1]) {
+    const fromLarge = parseTeamRosterSection(largeSection[1]);
+    if (fromLarge.length > 0) return fromLarge;
+  }
+
+  const smallSection = html.match(/<div class="small">\s*<div class="container496">([\s\S]*?<\/table>)/i);
+  if (smallSection?.[1]) {
+    return parseTeamRosterSection(smallSection[1]);
+  }
+
+  return [];
 }
 
 export async function scrapeTeamRoster(teamName: string, year: number): Promise<TRTeamPlayer[]> {
