@@ -75,6 +75,10 @@ export interface DigestData {
   upcomingMatches: UpcomingMatch[];
   /** Every non-bye match completed */
   seasonComplete: boolean;
+  /** All matches done, or champion & last place are mathematically locked (dead rubbers may remain) */
+  seasonFinaleEligible: boolean;
+  /** Scheduled matches left when finale-eligible but not all scored (for copy / GPT) */
+  deadRubberMatchesRemaining: number;
   /** Top finisher with zero losses (round-robin perfect season) */
   undefeatedChampion: { name: string; wins: number; losses: number } | null;
   /** Everyone with 0 wins (usually one person in a full round robin) */
@@ -147,6 +151,37 @@ function computeStandings(
   });
 }
 
+function countScheduledForParticipant(participantId: string, matches: TournamentMatch[]): number {
+  return matches.filter(
+    (m) =>
+      m.status === "scheduled"
+      && (m.participant1_id === participantId || m.participant2_id === participantId),
+  ).length;
+}
+
+/** One player can finish with strictly more wins than anyone else could achieve */
+function championLocked(standings: Standing[], allMatches: TournamentMatch[]): boolean {
+  if (standings.length < 2) return false;
+  const maxFinishes = standings.map((s) => ({
+    max: s.wins + countScheduledForParticipant(s.participant_id, allMatches),
+  }));
+  const sorted = [...maxFinishes].sort((a, b) => b.max - a.max);
+  return sorted[0].max > sorted[1].max;
+}
+
+/** One player cannot reach anyone else's current win total (guaranteed last) */
+function lastPlaceLocked(standings: Standing[], allMatches: TournamentMatch[]): boolean {
+  if (standings.length < 2) return false;
+  for (const s of standings) {
+    const maxP = s.wins + countScheduledForParticipant(s.participant_id, allMatches);
+    const othersAllAhead = standings.every(
+      (o) => o.participant_id === s.participant_id || o.wins > maxP,
+    );
+    if (othersAllAhead) return true;
+  }
+  return false;
+}
+
 export async function gatherDigestData(db: D1Database, tournamentSlug: string): Promise<DigestData | null> {
   const tournament = await db.prepare(
     "SELECT id, name, slug FROM tournaments WHERE slug = ? AND status = 'active'"
@@ -180,28 +215,36 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
   const seasonComplete =
     allMatches.length > 0 && allMatches.every((m) => m.status === "completed");
 
+  const standings = computeStandings(allMatches, participants);
+  const seasonFinaleEligible =
+    seasonComplete
+    || (championLocked(standings, allMatches) && lastPlaceLocked(standings, allMatches));
+  const deadRubberMatchesRemaining =
+    seasonFinaleEligible && !seasonComplete
+      ? allMatches.filter((m) => m.status === "scheduled").length
+      : 0;
+
   // "This week" = matches completed in the last 7 days (cron sends Sunday)
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
   let thisWeekResults = allMatches.filter(
     (m) => m.status === "completed" && m.updated_at && m.updated_at >= weekAgo
   );
 
-  if (thisWeekResults.length === 0 && seasonComplete) {
+  if (thisWeekResults.length === 0 && seasonFinaleEligible) {
     const maxWeek = Math.max(...completedMatches.map((m) => m.week), 0);
     thisWeekResults = completedMatches.filter((m) => m.week === maxWeek);
   }
-  if (thisWeekResults.length === 0 && seasonComplete && completedMatches.length > 0) {
+  if (thisWeekResults.length === 0 && seasonFinaleEligible && completedMatches.length > 0) {
     thisWeekResults = completedMatches;
   }
 
   if (thisWeekResults.length === 0) return null;
 
   // Figure out current week number from the latest completed matches
-  const currentWeek = seasonComplete
+  const currentWeek = seasonComplete || seasonFinaleEligible
     ? totalWeeks
     : Math.max(...thisWeekResults.map((m) => m.week), 0);
 
-  const standings = computeStandings(allMatches, participants);
   const standingsByParticipant = new Map(standings.map((s) => [s.participant_id, s]));
   const standingsByPlayerId = new Map(standings.map((s) => [s.player_id, s]));
 
@@ -250,9 +293,13 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
   const biggestUpset = results.filter((r) => r.isUpset)
     .sort((a, b) => Math.max(Math.abs(b.p1EloDelta), Math.abs(b.p2EloDelta)) - Math.max(Math.abs(a.p1EloDelta), Math.abs(a.p2EloDelta)))[0] ?? null;
 
-  // Upcoming matches: next week's scheduled matches
+  // Upcoming: next week in regular season; all remaining scheduled when title/last locked but dead rubbers remain
   const upcomingMatches: UpcomingMatch[] = allMatches
-    .filter((m) => m.status === "scheduled" && m.week === currentWeek + 1 && !seasonComplete)
+    .filter((m) => {
+      if (m.status !== "scheduled" || seasonComplete) return false;
+      if (seasonFinaleEligible) return true;
+      return m.week === currentWeek + 1;
+    })
     .map((m) => {
       const p1Standing = standingsByParticipant.get(m.participant1_id);
       const p2Standing = standingsByParticipant.get(m.participant2_id);
@@ -279,12 +326,14 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
 
   const winlessPlayers = standings.filter((s) => s.wins === 0 && s.matches > 0);
 
-  const digestKind: DigestData["digestKind"] = seasonComplete ? "season_finale" : "weekly";
-  const weekLabel = seasonComplete
-    ? `Season complete — ${totalWeeks} weeks of battle`
+  const digestKind: DigestData["digestKind"] = seasonFinaleEligible ? "season_finale" : "weekly";
+  const weekLabel = seasonFinaleEligible
+    ? deadRubberMatchesRemaining > 0
+      ? `Season decided — ${totalWeeks} weeks (one match still on the calendar)`
+      : `Season complete — ${totalWeeks} weeks of battle`
     : `Week ${currentWeek} of ${totalWeeks}`;
 
-  const emailSubject = seasonComplete
+  const emailSubject = seasonFinaleEligible
     ? `${tournament.name} — Season finale: champion crowned!`
     : `${tournament.name} — ${weekLabel} recap`;
 
@@ -300,6 +349,8 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
     biggestUpset,
     upcomingMatches,
     seasonComplete,
+    seasonFinaleEligible,
+    deadRubberMatchesRemaining,
     undefeatedChampion,
     winlessPlayers,
     digestKind,
@@ -331,9 +382,13 @@ export async function generateDigestNarrative(data: DigestData): Promise<string>
 
     if (data.digestKind === "season_finale") {
       const prompt = {
-        season: "Greenbrook Singles World Championships — full season round robin finished",
+        season:
+          data.deadRubberMatchesRemaining > 0
+            ? "Greenbrook Singles World Championships — champion and last place are decided; optional dead-rubber matches may remain"
+            : "Greenbrook Singles World Championships — full season round robin finished",
         standings: standingsPayload,
         finalWeekResults: resultsPayload,
+        deadRubberMatchesRemaining: data.deadRubberMatchesRemaining,
         undefeatedChampion: data.undefeatedChampion,
         winlessPlayers: data.winlessPlayers.map((w) => w.name),
         biggestUpset: data.biggestUpset
@@ -359,6 +414,8 @@ export async function generateDigestNarrative(data: DigestData): Promise<string>
               content: `You are the lead voice of the Greenbrook Singles World Championships — think ESPN Finals night meets neighborhood block party. The season is OVER. This is the season-ending wrap-up email to everyone who played.
 
 Your tone must be electric, warm, and genuinely celebratory. First names only for players. No emojis. No mockery.
+
+If deadRubberMatchesRemaining is greater than 0, add one short honest sentence early: the title and last place are decided, but one or more matches remain that can still affect middle-of-the-pack standings. Do not claim every match has been played.
 
 Required structure — use these exact H3 headers in order:
 
@@ -462,7 +519,12 @@ export function buildDigestEmailHtml(data: DigestData, narrative: string): strin
     </tr>`;
   }).join("");
 
-  const standingsTitle = data.digestKind === "season_finale" ? "Final standings" : "Standings";
+  const standingsTitle =
+    data.digestKind === "season_finale" && data.deadRubberMatchesRemaining === 0
+      ? "Final standings"
+      : data.digestKind === "season_finale"
+        ? "Standings (title & last place decided)"
+        : "Standings";
 
   const standingsHtml = `
     <h3 style="font-size: 15px; color: #0c4a6e; margin: 24px 0 8px 0;">${standingsTitle}</h3>
@@ -489,7 +551,12 @@ export function buildDigestEmailHtml(data: DigestData, narrative: string): strin
     </tr>`;
   }).join("");
 
-  const resultsSectionTitle = data.digestKind === "season_finale" ? "Final matches" : "This Week's Results";
+  const resultsSectionTitle =
+    data.digestKind === "season_finale" && data.deadRubberMatchesRemaining === 0
+      ? "Final matches"
+      : data.digestKind === "season_finale"
+        ? "Latest results"
+        : "This Week's Results";
 
   const resultsHtml = data.results.length > 0 ? `
     <h3 style="font-size: 15px; color: #0c4a6e; margin: 24px 0 8px 0;">${resultsSectionTitle}</h3>
@@ -537,8 +604,13 @@ export function buildDigestEmailHtml(data: DigestData, narrative: string): strin
     </tr>`;
   }).join("");
 
+  const upcomingHeading =
+    data.digestKind === "season_finale" && data.deadRubberMatchesRemaining > 0
+      ? "Still on the calendar"
+      : "Next Week's Matches";
+
   const upcomingHtml = data.upcomingMatches.length > 0 ? `
-    <h3 style="font-size: 15px; color: #0c4a6e; margin: 24px 0 8px 0;">Next Week's Matches</h3>
+    <h3 style="font-size: 15px; color: #0c4a6e; margin: 24px 0 8px 0;">${upcomingHeading}</h3>
     <table role="presentation" style="width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0; border-collapse: collapse; font-size: 13px;">
       ${upcomingRows}
     </table>` : "";
@@ -552,13 +624,15 @@ export function buildDigestEmailHtml(data: DigestData, narrative: string): strin
          </div>`
       : data.digestKind === "season_finale"
         ? `<div style="margin: 0 0 20px 0; padding: 16px 18px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; text-align: center;">
-             <p style="margin: 0; font-size: 15px; font-weight: 700; color: #0c4a6e;">Season complete — thanks for an incredible run</p>
+             <p style="margin: 0; font-size: 15px; font-weight: 700; color: #0c4a6e;">${data.deadRubberMatchesRemaining > 0 ? "Champion & last place are set — thanks for an incredible season" : "Season complete — thanks for an incredible run"}</p>
            </div>`
         : "";
 
   const subline =
     data.digestKind === "season_finale"
-      ? "Season finale — full round robin in the books"
+      ? data.deadRubberMatchesRemaining > 0
+        ? `Season finale — ${data.deadRubberMatchesRemaining} match${data.deadRubberMatchesRemaining !== 1 ? "es" : ""} still on the schedule for bragging rights`
+        : "Season finale — full round robin in the books"
       : `${data.results.length} match${data.results.length !== 1 ? "es" : ""} completed this week`;
 
   const content = `
