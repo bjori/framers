@@ -902,6 +902,67 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (body.action === "send-oneoff-email") {
+      const { matchDate, teamSlug, subject: subjectOverride, html: htmlOverride, targetStatuses } = body as {
+        matchDate?: string; teamSlug?: string; subject?: string; html?: string;
+        targetStatuses?: string[];
+      };
+      if (!matchDate || !teamSlug || !htmlOverride) {
+        return NextResponse.json({ error: "matchDate, teamSlug, and html are required" }, { status: 400 });
+      }
+      const match = await db.prepare(
+        `SELECT lm.id, lm.opponent_team, lm.match_date, t.name as team_name, t.slug as team_slug, t.id as team_id
+         FROM league_matches lm JOIN teams t ON t.id = lm.team_id
+         WHERE lm.match_date = ? AND t.slug = ?`,
+      ).bind(matchDate, teamSlug).first<{
+        id: string; opponent_team: string; match_date: string; team_name: string; team_slug: string; team_id: string;
+      }>();
+      if (!match) return NextResponse.json({ error: "Match not found" }, { status: 404 });
+
+      const statuses = targetStatuses ?? ["no", "none"];
+      const statusPlaceholders = statuses.map(() => "?").join(",");
+      const recipients = (
+        await db.prepare(
+          `SELECT p.email, p.name FROM team_memberships tm
+           JOIN players p ON p.id = tm.player_id
+           LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
+           WHERE tm.team_id = ? AND tm.active = 1
+             AND COALESCE(a.status, 'none') IN (${statusPlaceholders})`,
+        ).bind(match.id, match.team_id, ...statuses).all<{ email: string; name: string }>()
+      ).results;
+
+      if (recipients.length === 0) {
+        return NextResponse.json({ ok: true, message: "No recipients matched the target statuses", statuses });
+      }
+
+      const subj = subjectOverride ?? `${match.team_name} vs ${match.opponent_team} — we need you`;
+      const { listSender: listSenderFn, emailTemplate: emailTemplateFn, matchThreadHeaders: matchThreadHeadersFn } = await import("@/lib/email");
+      const sender = listSenderFn(match.team_slug, match.team_name);
+      const batch = recipients.map((m) => ({
+        to: m.email,
+        subject: subj,
+        ...sender,
+        html: emailTemplateFn(
+          htmlOverride.replace(/\{\{firstName\}\}/g, m.name.split(" ")[0]),
+          {
+            heading: match.team_name,
+            ctaUrl: `https://framers.app/team/${match.team_slug}/match/${match.id}`,
+            ctaLabel: "Open Match & RSVP",
+          },
+        ),
+        headers: matchThreadHeadersFn(match.id),
+      }));
+
+      const result = await (await import("@/lib/email")).sendEmailBatch(batch);
+      return NextResponse.json({
+        ok: true,
+        sent: result.sent,
+        failed: result.failed,
+        recipients: recipients.map((r) => r.name),
+        subject: subj,
+      });
+    }
+
     if (body.action === "trigger-cron") {
       const cronSecret = env.CRON_SECRET;
       if (!cronSecret) {
