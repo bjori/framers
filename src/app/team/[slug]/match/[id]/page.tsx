@@ -322,11 +322,6 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
         </section>
       )}
 
-      {/* Opponent Scouting */}
-      {match.opponent_team && (
-        <OpponentScouting opponentTeam={match.opponent_team} ourTeamSlug={slug} />
-      )}
-
       {/* Lineup — unified view for captains (editor with view/edit toggle) */}
       {canManage && !isPast && lineup && editableSlots.length > 0 && (
         <>
@@ -405,6 +400,11 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
       {/* Lineup Generator — only for first-time lineup creation */}
       {canManage && !isPast && !lineup && (
         <LineupGenerator slug={slug} matchId={id} />
+      )}
+
+      {/* Opponent Scouting — after lineup so who is playing stays above TR intel */}
+      {match.opponent_team && (
+        <OpponentScouting opponentTeam={match.opponent_team} ourTeamSlug={slug} />
       )}
 
       {/* Availability — hidden for captains when lineup exists (editor pool replaces it) */}
