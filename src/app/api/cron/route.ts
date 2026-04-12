@@ -8,6 +8,7 @@ import { recalculateElo } from "@/lib/elo-recalc";
 import { gatherDigestData, generateDigestNarrative, buildDigestEmailHtml } from "@/lib/tournament-digest";
 import { detectMilestones, generateMilestoneDigestQuip, type Milestone } from "@/lib/tournament-milestones";
 import { generatePreMatchCommentary, generatePostMatchCommentary } from "@/lib/league-commentary";
+import { displayLeagueMatchLocation } from "@/lib/league-venues";
 
 const POSITION_LABELS: Record<string, string> = {
   D1A: "Doubles 1", D1B: "Doubles 1", D2A: "Doubles 2", D2B: "Doubles 2",
@@ -244,7 +245,7 @@ export async function GET(request: NextRequest) {
           </td>
           <td style="padding: 12px 16px; width: 50%;">
             <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">Where</p>
-            <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${match.location || "TBD"}</p>
+            <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${displayLeagueMatchLocation(match.location, match.is_home)}</p>
           </td>
         </tr>
         ${match.notes ? `<tr><td colspan="2" style="padding: 8px 16px; border-top: 1px solid #e2e8f0;"><p style="margin: 0; font-size: 13px; color: #475569;">${match.notes}</p></td></tr>` : ""}
@@ -771,7 +772,10 @@ export async function GET(request: NextRequest) {
       html: emailTemplate(
         `<h2 style="margin: 0 0 8px 0; font-size: 18px; color: #0c4a6e;">Match Results ${resultBadge}</h2>
          <p><strong>${match.team_name}</strong> vs <strong>${match.opponent_team}</strong> (${match.is_home ? "Home" : "Away"}) — <strong>${match.team_score}</strong></p>
-         <p style="font-size: 13px; color: #64748b;">${dateStr}${match.location ? ` · ${match.location}` : ""}</p>
+         <p style="font-size: 13px; color: #64748b;">${dateStr}${(() => {
+           const loc = displayLeagueMatchLocation(match.location, match.is_home);
+           return loc !== "TBD" ? ` · ${loc}` : "";
+         })()}</p>
          ${postNarrativeHtml}
          <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0;">Line-by-Line Results</h3>
          ${resultsTableHtml}

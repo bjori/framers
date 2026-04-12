@@ -10,6 +10,7 @@ import { LineupAcknowledge } from "@/components/lineup-acknowledge";
 import { LineupChat } from "@/components/lineup-chat";
 import { OpponentScouting } from "@/components/opponent-scouting";
 import { Breadcrumb } from "@/components/breadcrumb";
+import { displayLeagueMatchLocation } from "@/lib/league-venues";
 
 interface RsvpResponse {
   player_id: string;
@@ -186,6 +187,8 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
     return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
   }
 
+  const whereLabel = displayLeagueMatchLocation(match.location, match.is_home);
+
   return (
     <div className="space-y-6">
       <div>
@@ -221,7 +224,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
           <div>
             <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Where</p>
             <p className="text-sm font-medium">
-              {match.location || <span className="text-slate-400">TBD</span>}
+              {whereLabel === "TBD" ? <span className="text-slate-400">TBD</span> : whereLabel}
             </p>
           </div>
         </div>
@@ -249,7 +252,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
               slug={slug}
               matchId={id}
               currentTime={match.match_time}
-              currentLocation={match.location}
+              currentLocation={whereLabel === "TBD" ? "" : whereLabel}
               currentNotes={match.notes}
             />
           </div>

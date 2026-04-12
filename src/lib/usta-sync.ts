@@ -1,3 +1,5 @@
+import { GREENBROOK_HOME_VENUE } from "@/lib/league-venues";
+
 const USTA_BASE = "https://leagues.ustanorcal.com";
 
 const PLAYER_NAME_MAP: Record<string, string> = {
@@ -238,6 +240,14 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     await db.prepare("UPDATE league_matches SET match_time = COALESCE(?, match_time), notes = ? WHERE team_id = ? AND match_date = ?")
       .bind(matchTime, tu.rawTime, team.id, tu.date).run();
   }
+
+  // USTA schedule HTML does not include our home court address; all Greenbrook home league matches are here.
+  await db
+    .prepare(
+      `UPDATE league_matches SET location = ? WHERE team_id = ? AND is_home = 1 AND (location IS NULL OR TRIM(location) = '')`,
+    )
+    .bind(GREENBROOK_HOME_VENUE, team.id)
+    .run();
 
   // Sync roster
   const rosterNames: string[] = [];

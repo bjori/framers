@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { sendEmail, sendEmailBatch, emailTemplate, matchThreadHeaders, listSender } from "@/lib/email";
+import { displayLeagueMatchLocation } from "@/lib/league-venues";
 import { track } from "@/lib/analytics";
 
 const POSITION_LABELS: Record<string, string> = {
@@ -166,7 +167,7 @@ async function sendLineupLockedEmail(
         </td>
         <td style="padding: 12px 16px; width: 50%;">
           <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">Where</p>
-          <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${matchInfo.location || "TBD"}</p>
+          <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${displayLeagueMatchLocation(matchInfo.location, matchInfo.is_home)}</p>
         </td>
       </tr>
       ${matchInfo.notes ? `<tr><td colspan="2" style="padding: 8px 16px; border-top: 1px solid #e2e8f0;"><p style="margin: 0; font-size: 13px; color: #475569;">${matchInfo.notes}</p></td></tr>` : ""}
