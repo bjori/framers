@@ -9,6 +9,8 @@ import { gatherDigestData, generateDigestNarrative, buildDigestEmailHtml } from 
 import { detectMilestones, generateMilestoneDigestQuip, type Milestone } from "@/lib/tournament-milestones";
 import { generatePreMatchCommentary, generatePostMatchCommentary } from "@/lib/league-commentary";
 import { displayLeagueMatchLocation } from "@/lib/league-venues";
+import { neededStarterCount, vacantLinesLabelForLeagueMatch } from "@/lib/lineup-vacancy";
+import { generateRsvpNeedMoreYesPitch, generateShorthandedLineupPitch } from "@/lib/league-shorthanded-nudge-email";
 
 const POSITION_LABELS: Record<string, string> = {
   D1A: "Doubles 1", D1B: "Doubles 1", D2A: "Doubles 2", D2B: "Doubles 2",
@@ -19,7 +21,8 @@ const POSITION_LABELS: Record<string, string> = {
  * Cron endpoint - call via GET /api/cron?key=CRON_SECRET
  * Runs daily to:
  * 1. Auto-transition match statuses (close RSVPs past deadline, flag low-availability)
- * 2. "We need you!" at 2 weeks out + RSVP reminders 2-5 days out, to all non-responders (once per match)
+ * 2. RSVP ladder: 2 weeks non-responders; 7 days if short on Yes; daily 1–7d (short) or 2–5d (enough Yes) reminders;
+ *    shorthanded lineup nudges at 5/3/1 days to No/Maybe/null not on the card (GPT + dedup)
  * 3. Tournament score reminders for overdue matches (once per match, then every 3 days)
  * 4. USTA sync (scores, roster, schedule) + ELO recalculation for all active teams
  */
@@ -108,65 +111,315 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 2b. RSVP reminders: matches 2-5 days out, to ALL non-responders (skip unconfirmed away)
-  const remindStart = new Date(now.getTime() + 2 * 86400000).toISOString().slice(0, 10);
-  const remindEnd = new Date(now.getTime() + 5 * 86400000).toISOString().slice(0, 10);
+  const escapeEmailBody = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  // 2a-week. Exactly 7 days out: if starter "Yes" RSVPs are short, email everyone not on Yes (once per match)
+  const oneWeekOut = new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10);
+  const weekLeadMatches = (
+    await db.prepare(
+      `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id,
+              t.name as team_name, t.slug as team_slug, t.match_format as match_format
+       FROM league_matches lm
+       JOIN teams t ON t.id = lm.team_id
+       WHERE lm.status NOT IN ('completed', 'cancelled', 'locked')
+         AND lm.match_date = ?
+         AND (lm.is_home = 1 OR (lm.notes IS NOT NULL AND trim(lm.notes) != ''))`,
+    )
+      .bind(oneWeekOut)
+      .all<{
+        id: string; opponent_team: string; match_date: string; team_id: string;
+        team_name: string; team_slug: string; match_format: string;
+      }>()
+  ).results;
+
+  for (const match of weekLeadMatches) {
+    const weekSent = (
+      await db.prepare("SELECT COUNT(*) as cnt FROM app_events WHERE event = 'rsvp_week_need_yes' AND detail LIKE ?")
+        .bind(`${match.id}|%`)
+        .first<{ cnt: number }>()
+    )?.cnt ?? 0;
+    if (weekSent > 0) continue;
+
+    const needed = neededStarterCount(match.match_format);
+    const yesRow = await db.prepare("SELECT COUNT(*) as cnt FROM availability WHERE match_id = ? AND status = 'yes'")
+      .bind(match.id)
+      .first<{ cnt: number }>();
+    const yesCount = yesRow?.cnt ?? 0;
+    if (yesCount >= needed) continue;
+
+    const targets = (
+      await db.prepare(
+        `SELECT p.email, p.name FROM team_memberships tm
+         JOIN players p ON p.id = tm.player_id
+         LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
+         WHERE tm.team_id = ? AND tm.active = 1 AND COALESCE(a.status, '') != 'yes'`,
+      )
+        .bind(match.id, match.team_id)
+        .all<{ email: string; name: string }>()
+    ).results;
+
+    if (targets.length === 0) continue;
+
+    const dateStr = new Date(match.match_date + "T12:00:00").toLocaleDateString("en-US", {
+      weekday: "long", month: "long", day: "numeric",
+    });
+    const shared = await generateRsvpNeedMoreYesPitch(env.OPENAI_API_KEY, {
+      teamName: match.team_name,
+      opponentTeam: match.opponent_team,
+      matchDateLabel: dateStr,
+      yesCount,
+      needed,
+      daysUntilMatch: 7,
+    });
+    const sender = listSender(match.team_slug, match.team_name);
+    const batch = targets.map((m) => ({
+      to: m.email,
+      subject: `One week out — need more Yes (${yesCount}/${needed}): ${match.team_name} vs ${match.opponent_team}`,
+      ...sender,
+      html: emailTemplate(
+        `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${m.name.split(" ")[0]},</h2>
+         <p><strong>One week from match day</strong> vs <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
+         <p style="margin: 8px 0;">We have <strong>${yesCount}</strong> Yes RSVP${yesCount === 1 ? "" : "s"} on Framers and need <strong>${needed}</strong> to plan a full card. If you can play, please switch to <strong>Yes</strong>; if you truly cannot, keep No so we are not guessing.</p>
+         <p style="margin: 12px 0; font-size: 14px; color: #334155; white-space: pre-line;">${escapeEmailBody(shared)}</p>`,
+        {
+          heading: "RSVP — captains need bodies",
+          ctaUrl: `https://framers.app/team/${match.team_slug}/match/${match.id}`,
+          ctaLabel: "Update RSVP",
+        },
+      ),
+      headers: matchThreadHeaders(match.id),
+    }));
+    await sendEmailBatch(batch);
+    await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+      .bind("rsvp_week_need_yes", `${match.id}|${targets.length}`, now.toISOString())
+      .run();
+    log.push(`[RSVP 1-week short on Yes] ${match.opponent_team}: ${targets.length} recipients (${yesCount}/${needed} Yes)`);
+  }
+
+  // 2b. RSVP reminders: if short on Yes → daily for matches 1–7 days out to everyone not Yes; else 2–5 days non-responders only
+  const remindShortStart = new Date(now.getTime() + 1 * 86400000).toISOString().slice(0, 10);
+  const remindShortEnd = new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10);
+  const remindSafeStart = new Date(now.getTime() + 2 * 86400000).toISOString().slice(0, 10);
+  const remindSafeEnd = new Date(now.getTime() + 5 * 86400000).toISOString().slice(0, 10);
 
   const upcomingMatches = (
     await db.prepare(
       `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id,
-              t.name as team_name, t.slug as team_slug
+              t.name as team_name, t.slug as team_slug, t.match_format as match_format
        FROM league_matches lm
        JOIN teams t ON t.id = lm.team_id
-       WHERE lm.status IN ('open', 'needs_players')
+       WHERE lm.status NOT IN ('completed', 'cancelled', 'locked')
          AND lm.match_date BETWEEN ? AND ?
-         AND (lm.is_home = 1 OR (lm.notes IS NOT NULL AND trim(lm.notes) != ''))`
-    ).bind(remindStart, remindEnd).all<{
-      id: string; opponent_team: string; match_date: string; team_id: string;
-      team_name: string; team_slug: string;
-    }>()
+         AND (lm.is_home = 1 OR (lm.notes IS NOT NULL AND trim(lm.notes) != ''))`,
+    )
+      .bind(remindShortStart, remindShortEnd)
+      .all<{
+        id: string; opponent_team: string; match_date: string; team_id: string;
+        team_name: string; team_slug: string; match_format: string;
+      }>()
   ).results;
 
   for (const match of upcomingMatches) {
     const alreadySentToday = (
       await db.prepare("SELECT COUNT(*) as cnt FROM app_events WHERE event = 'rsvp_reminder' AND detail LIKE ? AND created_at >= ?")
-        .bind(`${match.id}|%`, today + "T00:00:00Z").first<{ cnt: number }>()
+        .bind(`${match.id}|%`, today + "T00:00:00Z")
+        .first<{ cnt: number }>()
     )?.cnt ?? 0;
     if (alreadySentToday > 0) continue;
 
-    const nonResponders = (
-      await db.prepare(
-        `SELECT p.email, p.name FROM team_memberships tm
-         JOIN players p ON p.id = tm.player_id
-         LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
-         WHERE tm.team_id = ? AND tm.active = 1 AND a.status IS NULL`
-      ).bind(match.id, match.team_id).all<{ email: string; name: string }>()
-    ).results;
+    const needed = neededStarterCount(match.match_format);
+    const yesRow = await db.prepare("SELECT COUNT(*) as cnt FROM availability WHERE match_id = ? AND status = 'yes'")
+      .bind(match.id)
+      .first<{ cnt: number }>();
+    const yesCount = yesRow?.cnt ?? 0;
+    const shortOnYes = yesCount < needed;
 
-    if (nonResponders.length > 0) {
-      const dateStr = new Date(match.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-      const sender = listSender(match.team_slug, match.team_name);
-      const batch = nonResponders.map((m) => ({
-        to: m.email,
-        subject: `RSVP reminder: ${match.team_name} vs ${match.opponent_team}`,
-        ...sender,
-        html: emailTemplate(
-          `<p>Hey ${m.name.split(" ")[0]},</p>
+    if (!shortOnYes && (match.match_date < remindSafeStart || match.match_date > remindSafeEnd)) continue;
+
+    if (shortOnYes && match.match_date === oneWeekOut) {
+      const weekBlast = (
+        await db.prepare("SELECT COUNT(*) as cnt FROM app_events WHERE event = 'rsvp_week_need_yes' AND detail LIKE ?")
+          .bind(`${match.id}|%`)
+          .first<{ cnt: number }>()
+      )?.cnt ?? 0;
+      if (weekBlast > 0) continue;
+    }
+
+    let recipients: { email: string; name: string }[];
+    if (shortOnYes) {
+      recipients = (
+        await db.prepare(
+          `SELECT p.email, p.name FROM team_memberships tm
+           JOIN players p ON p.id = tm.player_id
+           LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
+           WHERE tm.team_id = ? AND tm.active = 1 AND COALESCE(a.status, '') != 'yes'`,
+        )
+          .bind(match.id, match.team_id)
+          .all<{ email: string; name: string }>()
+      ).results;
+    } else {
+      recipients = (
+        await db.prepare(
+          `SELECT p.email, p.name FROM team_memberships tm
+           JOIN players p ON p.id = tm.player_id
+           LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
+           WHERE tm.team_id = ? AND tm.active = 1 AND a.status IS NULL`,
+        )
+          .bind(match.id, match.team_id)
+          .all<{ email: string; name: string }>()
+      ).results;
+    }
+
+    if (recipients.length === 0) continue;
+
+    const dateStr = new Date(match.match_date + "T12:00:00").toLocaleDateString("en-US", {
+      weekday: "long", month: "long", day: "numeric",
+    });
+    const daysUntil = Math.ceil(
+      (new Date(match.match_date + "T12:00:00").getTime() - now.getTime()) / 86400000,
+    );
+    const sender = listSender(match.team_slug, match.team_name);
+
+    let subject: string;
+    let pitchEsc = "";
+    if (shortOnYes) {
+      const shared = await generateRsvpNeedMoreYesPitch(env.OPENAI_API_KEY, {
+        teamName: match.team_name,
+        opponentTeam: match.opponent_team,
+        matchDateLabel: dateStr,
+        yesCount,
+        needed,
+        daysUntilMatch: daysUntil,
+      });
+      subject = `RSVP: need more Yes (${yesCount}/${needed}) — ${match.team_name} vs ${match.opponent_team}`;
+      pitchEsc = escapeEmailBody(shared);
+    } else {
+      subject = `RSVP reminder: ${match.team_name} vs ${match.opponent_team}`;
+    }
+
+    const batch = recipients.map((m) => ({
+      to: m.email,
+      subject,
+      ...sender,
+      html: emailTemplate(
+        shortOnYes
+          ? `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${m.name.split(" ")[0]},</h2>
+         <p>Match vs <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong> is <strong>${daysUntil} day${daysUntil === 1 ? "" : "s"}</strong> away.</p>
+         <p style="margin: 8px 0;">We have <strong>${yesCount}</strong> Yes RSVP${yesCount === 1 ? "" : "s"} and need <strong>${needed}</strong> for a full lineup.</p>
+         <p style="margin: 12px 0; font-size: 14px; color: #334155; white-space: pre-line;">${pitchEsc}</p>`
+          : `<p>Hey ${m.name.split(" ")[0]},</p>
            <p>We still need your RSVP for <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
            <p>Please let us know if you can make it so we can finalize the lineup!</p>`,
+        {
+          heading: match.team_name,
+          ctaUrl: `https://framers.app/team/${match.team_slug}/match/${match.id}`,
+          ctaLabel: "RSVP Now",
+        },
+      ),
+      headers: matchThreadHeaders(match.id),
+    }));
+    await sendEmailBatch(batch);
+    await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+      .bind("rsvp_reminder", `${match.id}|${recipients.length} recipients`, now.toISOString())
+      .run();
+    log.push(
+      `[RSVP reminder] ${match.opponent_team} on ${match.match_date}: ${recipients.length} recipients${shortOnYes ? ` (short on Yes ${yesCount}/${needed})` : ""}`,
+    );
+  }
+
+  // 2c. Shorthanded lineup (vacant starters): 5 / 3 / 1 days out — No / Maybe / no RSVP, not on starter card; GPT paragraph + dedup per player per phase
+  for (const phaseDays of [5, 3, 1] as const) {
+    const phaseKey = phaseDays === 5 ? "five" : phaseDays === 3 ? "three" : "one";
+    const targetDate = new Date(now.getTime() + phaseDays * 86400000).toISOString().slice(0, 10);
+    const shortLineupMatches = (
+      await db.prepare(
+        `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id,
+                t.name as team_name, t.slug as team_slug, t.match_format as match_format
+         FROM league_matches lm
+         JOIN teams t ON t.id = lm.team_id
+         WHERE lm.status NOT IN ('completed', 'cancelled', 'locked')
+           AND lm.match_date = ?
+           AND (lm.is_home = 1 OR (lm.notes IS NOT NULL AND trim(lm.notes) != ''))`,
+      )
+        .bind(targetDate)
+        .all<{
+          id: string; opponent_team: string; match_date: string; team_id: string;
+          team_name: string; team_slug: string; match_format: string;
+        }>()
+    ).results;
+
+    for (const match of shortLineupMatches) {
+      const vacantLabel = await vacantLinesLabelForLeagueMatch(db, match.id, match.match_format);
+      if (!vacantLabel) continue;
+
+      const targets = (
+        await db.prepare(
+          `SELECT p.id as player_id, p.email, p.name FROM team_memberships tm
+           JOIN players p ON p.id = tm.player_id
+           LEFT JOIN availability a ON a.player_id = p.id AND a.match_id = ?
+           WHERE tm.team_id = ? AND tm.active = 1
+             AND COALESCE(a.status, 'pending') != 'yes'
+             AND NOT EXISTS (
+               SELECT 1 FROM lineups lu
+               JOIN lineup_slots ls ON ls.lineup_id = lu.id AND ls.is_alternate = 0 AND ls.player_id = p.id
+               WHERE lu.match_id = ?
+             )`,
+        )
+          .bind(match.id, match.team_id, match.id)
+          .all<{ player_id: string; email: string; name: string }>()
+      ).results;
+
+      if (targets.length === 0) continue;
+
+      const dateStr = new Date(match.match_date + "T12:00:00").toLocaleDateString("en-US", {
+        weekday: "long", month: "long", day: "numeric",
+      });
+      const sharedLine = await generateShorthandedLineupPitch(env.OPENAI_API_KEY, {
+        teamName: match.team_name,
+        opponentTeam: match.opponent_team,
+        matchDateLabel: dateStr,
+        vacantLinesLabel: vacantLabel,
+        phase: phaseKey,
+      });
+
+      const sender = listSender(match.team_slug, match.team_name);
+      let sent = 0;
+      for (const m of targets) {
+        const dedup = (
+          await db.prepare("SELECT COUNT(*) as cnt FROM app_events WHERE event = 'shorthanded_nudge' AND detail = ?")
+            .bind(`${match.id}|${m.player_id}|d${phaseDays}`)
+            .first<{ cnt: number }>()
+        )?.cnt ?? 0;
+        if (dedup > 0) continue;
+
+        await sendEmailBatch([
           {
-            heading: match.team_name,
-            ctaUrl: `https://framers.app/team/${match.team_slug}/match/${match.id}`,
-            ctaLabel: "RSVP Now",
-          }
-        ),
-        headers: matchThreadHeaders(match.id),
-      }));
-      await sendEmailBatch(batch);
-      await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
-        .bind("rsvp_reminder", `${match.id}|${nonResponders.length} recipients`, now.toISOString())
-        .run();
-      log.push(`[RSVP reminder] ${match.opponent_team} on ${match.match_date}: sent to ${nonResponders.length} non-responders`);
+            to: m.email,
+            subject: `We need you on the card — ${vacantLabel} open vs ${match.opponent_team} (${phaseDays}d)`,
+            ...sender,
+            html: emailTemplate(
+              `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #b45309;">Hey ${m.name.split(" ")[0]},</h2>
+               <p>The lineup for <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong> still has open starter spot(s): <strong>${vacantLabel}</strong>.</p>
+               <p style="margin: 12px 0; font-size: 14px; color: #334155; white-space: pre-line;">${escapeEmailBody(sharedLine)}</p>
+               <p style="margin-top: 12px; font-size: 13px; color: #64748b;">If you can flip to <strong>Yes</strong> (or even Maybe) so captains can slot you in, that would help us avoid defaulting a line.</p>`,
+              {
+                heading: "Lineup SOS",
+                ctaUrl: `https://framers.app/team/${match.team_slug}/match/${match.id}`,
+                ctaLabel: "Open match & RSVP",
+              },
+            ),
+            headers: matchThreadHeaders(match.id),
+          },
+        ]);
+        await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+          .bind("shorthanded_nudge", `${match.id}|${m.player_id}|d${phaseDays}`, now.toISOString())
+          .run();
+        sent++;
+      }
+      if (sent > 0) {
+        log.push(`[Shorthanded nudge d${phaseDays}] ${match.opponent_team}: ${sent} players (${vacantLabel})`);
+      }
     }
   }
 

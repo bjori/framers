@@ -9,6 +9,11 @@ export function starterFormatFromTeamJson(matchFormatJson: string): { singles: n
   return { singles: format.singles ?? 1, doubles: format.doubles ?? 3 };
 }
 
+export function neededStarterCount(matchFormatJson: string): number {
+  const f = starterFormatFromTeamJson(matchFormatJson);
+  return f.singles + f.doubles * 2;
+}
+
 /** From DB starter rows (may omit empty positions); returns e.g. "Doubles 3" or null if card is full. */
 export function vacantLinesLabelFromStarterSlots(
   rawStarterSlots: { position: string; player_id: string | null }[],
