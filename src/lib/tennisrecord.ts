@@ -55,6 +55,14 @@ export interface TRTeamScouting {
 
 const TR_BASE = "https://www.tennisrecord.com";
 
+/**
+ * USTA schedules often append a club nickname in brackets, e.g. `PLEASANTON 18AM3.0A [DPTG-Doubletons]`.
+ * TennisRecord team profile URLs use the base name only (no bracket suffix).
+ */
+export function canonicalTennisRecordTeamName(scheduleOrTrName: string): string {
+  return scheduleOrTrName.replace(/\s*\[[^\]]*\]\s*$/u, "").trim();
+}
+
 export async function fetchTennisRecord(path: string): Promise<string | null> {
   const fullUrl = `${TR_BASE}${path}`;
   try {
@@ -202,7 +210,8 @@ export function parseTeamRoster(html: string): TRTeamPlayer[] {
 }
 
 export async function scrapeTeamRoster(teamName: string, year: number): Promise<TRTeamPlayer[]> {
-  const path = `/adult/teamprofile.aspx?year=${year}&teamname=${encodeURIComponent(teamName)}`;
+  const key = canonicalTennisRecordTeamName(teamName);
+  const path = `/adult/teamprofile.aspx?year=${year}&teamname=${encodeURIComponent(key)}`;
   const html = await fetchTennisRecord(path);
   if (!html) return [];
   return parseTeamRoster(html);
@@ -450,12 +459,13 @@ export async function deepScoutTeam(
   year: number,
   onProgress?: (p: ScoutProgress) => void,
 ): Promise<TRTeamScouting> {
+  const canonical = canonicalTennisRecordTeamName(teamName);
   onProgress?.({ phase: "roster", current: 0, total: 1 });
-  const roster = await scrapeTeamRoster(teamName, year);
+  const roster = await scrapeTeamRoster(canonical, year);
   onProgress?.({ phase: "roster", current: 1, total: 1 });
 
   if (roster.length === 0) {
-    return { teamName, year, roster: [], fetchedAt: new Date().toISOString() };
+    return { teamName: canonical, year, roster: [], fetchedAt: new Date().toISOString() };
   }
 
   const fullRoster: TRTeamScouting["roster"] = roster.map((p) => ({
@@ -510,7 +520,7 @@ export async function deepScoutTeam(
   await runWithConcurrency(tasks, 3);
 
   return {
-    teamName,
+    teamName: canonical,
     year,
     roster: fullRoster,
     fetchedAt: new Date().toISOString(),

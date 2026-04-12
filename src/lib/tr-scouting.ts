@@ -4,6 +4,7 @@ import {
   quickScoutTeam,
   findHeadToHead,
   predictMatchOutcome,
+  canonicalTennisRecordTeamName,
   type TRTeamScouting,
   type TRTeamPlayer,
   type TRMatchHistoryEntry,
@@ -12,7 +13,7 @@ import {
   type ScoutProgress,
 } from "@/lib/tennisrecord";
 
-export { predictMatchOutcome } from "@/lib/tennisrecord";
+export { predictMatchOutcome, canonicalTennisRecordTeamName } from "@/lib/tennisrecord";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -56,10 +57,11 @@ function isStale(fetchedAt: string): boolean {
 
 export async function getCachedTeam(teamName: string): Promise<CachedPlayer[]> {
   const db = await getDB();
+  const key = canonicalTennisRecordTeamName(teamName);
   return (
     await db
       .prepare("SELECT * FROM tr_players WHERE team_name = ? ORDER BY tr_rating DESC")
-      .bind(teamName)
+      .bind(key)
       .all<CachedPlayer>()
   ).results;
 }
@@ -156,9 +158,10 @@ async function persistScoutingData(scouting: TRTeamScouting): Promise<void> {
 async function persistQuickScout(teamName: string, roster: TRTeamPlayer[]): Promise<void> {
   const db = await getDB();
   const now = new Date().toISOString();
+  const key = canonicalTennisRecordTeamName(teamName);
 
   for (const player of roster) {
-    const id = `${teamName}::${player.name}`;
+    const id = `${key}::${player.name}`;
     await db
       .prepare(
         `INSERT INTO tr_players (id, player_name, team_name, ntrp, tr_rating,
@@ -170,7 +173,7 @@ async function persistQuickScout(teamName: string, roster: TRTeamPlayer[]): Prom
           local_doubles = excluded.local_doubles, local_record = excluded.local_record,
           fetched_at = excluded.fetched_at`
       )
-      .bind(id, player.name, teamName, player.ntrp, player.rating, player.seasonRecord, player.localSingles, player.localDoubles, player.localRecord, now)
+      .bind(id, player.name, key, player.ntrp, player.rating, player.seasonRecord, player.localSingles, player.localDoubles, player.localRecord, now)
       .run();
   }
 }
@@ -275,12 +278,14 @@ export async function getHeadToHead(
   opponentTeamName: string,
 ): Promise<HeadToHeadMatch[]> {
   const db = await getDB();
+  const ourKey = canonicalTennisRecordTeamName(ourTeamName);
+  const oppKey = canonicalTennisRecordTeamName(opponentTeamName);
 
   // Get our players' names
   const ourPlayers = (
     await db
       .prepare("SELECT player_name FROM tr_players WHERE team_name = ?")
-      .bind(ourTeamName)
+      .bind(ourKey)
       .all<{ player_name: string }>()
   ).results;
 
@@ -288,7 +293,7 @@ export async function getHeadToHead(
   const oppPlayers = (
     await db
       .prepare("SELECT player_name FROM tr_players WHERE team_name = ?")
-      .bind(opponentTeamName)
+      .bind(oppKey)
       .all<{ player_name: string }>()
   ).results;
 

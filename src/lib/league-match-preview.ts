@@ -1,6 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getDB } from "@/lib/db";
-import { predictMatchOutcome } from "@/lib/tennisrecord";
+import { canonicalTennisRecordTeamName, predictMatchOutcome } from "@/lib/tennisrecord";
 
 export interface LineInsight {
   position: string;
@@ -119,11 +119,12 @@ export async function generateMatchPreview(matchId: string): Promise<MatchPrevie
     }
   }
 
-  // Opponent scouting data if available (pool for TR matchup model)
+  // Opponent scouting data if available (pool for TR matchup model); cache keys omit USTA bracket nicknames
+  const oppTrKey = canonicalTennisRecordTeamName(match.opponent_team);
   const oppPlayers = (await db.prepare(
     `SELECT player_name, tr_rating, tr_dynamic_rating, season_record, current_streak
-     FROM tr_players WHERE team_name LIKE ? ORDER BY COALESCE(tr_dynamic_rating, tr_rating) DESC LIMIT 12`
-  ).bind(`%${match.opponent_team}%`).all<{
+     FROM tr_players WHERE team_name = ? ORDER BY COALESCE(tr_dynamic_rating, tr_rating) DESC LIMIT 12`
+  ).bind(oppTrKey).all<{
     player_name: string; tr_rating: number | null; tr_dynamic_rating: number | null;
     season_record: string | null; current_streak: string | null;
   }>()).results;

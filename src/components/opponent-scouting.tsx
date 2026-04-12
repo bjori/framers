@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { canonicalTennisRecordTeamName } from "@/lib/tennisrecord";
 
 interface ScoutPlayer {
   player_name: string;
@@ -39,6 +40,7 @@ export function OpponentScouting({ opponentTeam, ourTeamSlug }: { opponentTeam: 
   const [report, setReport] = useState<ScoutReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const trTeamProfileName = canonicalTennisRecordTeamName(opponentTeam);
 
   useEffect(() => {
     fetch(`/api/match-scouting?opponent=${encodeURIComponent(opponentTeam)}&team=${encodeURIComponent(ourTeamSlug)}`)
@@ -61,7 +63,7 @@ export function OpponentScouting({ opponentTeam, ourTeamSlug }: { opponentTeam: 
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Opponent Scouting</h2>
           <a
-            href={`https://www.tennisrecord.com/adult/teamprofile.aspx?year=2026&teamname=${encodeURIComponent(opponentTeam)}`}
+            href={`https://www.tennisrecord.com/adult/teamprofile.aspx?year=2026&teamname=${encodeURIComponent(trTeamProfileName)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[11px] font-semibold text-sky-600 hover:text-sky-500 flex items-center gap-1"
@@ -91,7 +93,7 @@ export function OpponentScouting({ opponentTeam, ourTeamSlug }: { opponentTeam: 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Opponent Scouting</h2>
         <a
-          href={`https://www.tennisrecord.com/adult/teamprofile.aspx?year=2026&teamname=${encodeURIComponent(opponentTeam)}`}
+          href={`https://www.tennisrecord.com/adult/teamprofile.aspx?year=2026&teamname=${encodeURIComponent(trTeamProfileName)}`}
           target="_blank"
           rel="noopener noreferrer"
           className="text-[11px] font-semibold text-sky-600 hover:text-sky-500 flex items-center gap-1"

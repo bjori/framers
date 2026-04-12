@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { getDB } from "@/lib/db";
 import { scoutOpponent, scoutOwnTeam, getCachedTeam } from "@/lib/tr-scouting";
 import { tennisRecordTeamNameFromDisplayName } from "@/lib/tr-team-aliases";
-import { emptyTeamRosterReason, fetchTennisRecord, parseTeamRoster } from "@/lib/tennisrecord";
+import { canonicalTennisRecordTeamName, emptyTeamRosterReason, fetchTennisRecord, parseTeamRoster } from "@/lib/tennisrecord";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     const cached = await getCachedTeam(scoutTargetName);
     let emptyHint: string | null = null;
     if (cached.length === 0) {
-      const path = `/adult/teamprofile.aspx?year=${year}&teamname=${encodeURIComponent(scoutTargetName)}`;
+      const path = `/adult/teamprofile.aspx?year=${year}&teamname=${encodeURIComponent(canonicalTennisRecordTeamName(scoutTargetName))}`;
       const html = await fetchTennisRecord(path);
       const parsed = html ? parseTeamRoster(html).length : 0;
       emptyHint = emptyTeamRosterReason(html, parsed);

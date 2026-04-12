@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { OUR_TENNISRECORD_TEAM_NAMES } from "@/lib/tr-team-aliases";
+import { canonicalTennisRecordTeamName } from "@/lib/tennisrecord";
 
 interface TeamStat {
   team_name: string;
@@ -136,23 +137,31 @@ export default function ScoutingPage() {
 
   if (loading) return <div className="p-8 text-center text-slate-500">Loading...</div>;
 
-  // Build a unified list of all teams (own + opponents) with their cached status
+  // One row per TennisRecord club: USTA may include `[Nickname]`; cache uses the base name
   const ownTeamTRSet = new Set(OUR_TENNISRECORD_TEAM_NAMES);
-  const allTeamNames = new Set<string>();
-  for (const name of OUR_TENNISRECORD_TEAM_NAMES) allTeamNames.add(name);
-  if (data) {
-    for (const t of data.oppTeams) allTeamNames.add(t);
-    for (const ts of data.teamStats) allTeamNames.add(ts.team_name);
+  const labelByCanonical = new Map<string, string>();
+  function preferTeamLabel(label: string) {
+    const c = canonicalTennisRecordTeamName(label);
+    const prev = labelByCanonical.get(c);
+    if (!prev || label.length > prev.length) labelByCanonical.set(c, label);
   }
+  for (const name of OUR_TENNISRECORD_TEAM_NAMES) preferTeamLabel(name);
+  if (data) {
+    for (const t of data.oppTeams) preferTeamLabel(t);
+    for (const ts of data.teamStats) preferTeamLabel(ts.team_name);
+  }
+  const allTeamNames = [...labelByCanonical.values()].sort((a, b) => a.localeCompare(b));
 
   const statsMap = new Map(data?.teamStats.map((t) => [t.team_name, t]) ?? []);
+  const statForLabel = (displayLabel: string) =>
+    statsMap.get(displayLabel) ?? statsMap.get(canonicalTennisRecordTeamName(displayLabel));
 
   return (
     <div className="space-y-6">
       <Breadcrumb items={[{ label: "Admin", href: "/admin" }, { label: "TennisRecord Scouting" }]} />
       <h1 className="text-2xl font-bold">TennisRecord Scouting</h1>
       <p className="text-sm text-slate-600 dark:text-slate-400 max-w-3xl">
-        Opponent names come from your schedule and must match TennisRecord exactly. A dash in <strong>Players</strong> usually means TennisRecord has not published a roster for that team/year yet (their site shows N/A only)—not a Framers bug. Use{" "}
+        Opponent names come from your schedule. USTA bracket nicknames (e.g. <code className="text-xs bg-surface px-1 rounded">[DPTG-Doubletons]</code>) are stripped for TennisRecord URLs and cache keys. A dash in <strong>Players</strong> usually means TR has no roster for that team/year yet (N/A page)—not a Framers bug. Use{" "}
         <strong>Refresh</strong> after TR updates; check the log for details when a scout returns 0 players.
       </p>
 
@@ -187,8 +196,8 @@ export default function ScoutingPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {[...allTeamNames].sort().map((teamName) => {
-              const stat = statsMap.get(teamName);
+            {allTeamNames.map((teamName) => {
+              const stat = statForLabel(teamName);
               const isOwn = ownTeamTRSet.has(teamName);
               const stale = stat ? isStale(stat.oldest_fetch) : true;
 
@@ -236,7 +245,7 @@ export default function ScoutingPage() {
                 </tr>
               );
             })}
-            {allTeamNames.size === 0 && (
+            {allTeamNames.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                   No teams found. Run USTA sync first to populate opponent teams.
