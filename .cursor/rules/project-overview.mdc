@@ -17,7 +17,7 @@ Manages USTA league teams, internal tournaments, practices, ELO ratings, and pay
 - **Email**: Resend API (sender: `captain@framers.app`, BCC all to `hannes.magnusson@gmail.com`)
 - **AI**: OpenAI GPT-4o-mini for commentary, player form summaries, match predictions (~$0.05/week)
 - **Scouting**: TennisRecord.com scraping for opponent ratings, records, head-to-head data
-- **Cron**: Separate `framers-cron` Cloudflare Worker triggers `/api/cron` daily at 9 AM Pacific
+- **Cron**: Separate `framers-cron` Cloudflare Worker triggers `/api/cron` daily at **17:00 UTC** (9 AM PST / 10 AM PDT)
 - **Domain**: `framers.app` — Cloudflare DNS + custom domain on worker
 
 ## Commit, Push & Deploy

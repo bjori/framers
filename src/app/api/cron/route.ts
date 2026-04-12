@@ -114,6 +114,7 @@ export async function GET(request: NextRequest) {
   const escapeEmailBody = (s: string) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+  try {
   // 2a-week. Exactly 7 days out: if starter "Yes" RSVPs are short, email everyone not on Yes (once per match)
   const oneWeekOut = new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10);
   const weekLeadMatches = (
@@ -421,6 +422,12 @@ export async function GET(request: NextRequest) {
         log.push(`[Shorthanded nudge d${phaseDays}] ${match.opponent_team}: ${sent} players (${vacantLabel})`);
       }
     }
+  }
+
+  } catch (rsvpLadderErr) {
+    const msg = rsvpLadderErr instanceof Error ? rsvpLadderErr.message : String(rsvpLadderErr);
+    log.push(`[RSVP ladder] error — ${msg}`);
+    console.error("[cron RSVP ladder]", rsvpLadderErr);
   }
 
   // 3. Pre-match emails: good luck + unconfirmed player nudges (matches tomorrow)
@@ -1130,9 +1137,9 @@ export async function GET(request: NextRequest) {
     log.push(`[Milestone digest] ${slug}: sent to ${participants.length} participants`);
   }
 
-  // 7. Weekly tournament digest — Sundays only
-  const pacificHour = new Date(now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
-  const isSunday = pacificHour.getDay() === 0;
+  // 7. Weekly tournament digest — Sundays only (wall clock in America/Los_Angeles)
+  const isSunday =
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", weekday: "short" }).format(now) === "Sun";
 
   if (isSunday) {
     const activeTournaments = (await db.prepare(

@@ -11,7 +11,7 @@ alwaysApply: false
 | Worker | Purpose | Trigger |
 |--------|---------|---------|
 | `greenbrook-framers` | Main app (Next.js) | Custom domain `framers.app` |
-| `framers-cron` | Calls `/api/cron` | Cron: `0 17 * * *` (9 AM Pacific) |
+| `framers-cron` | Calls `/api/cron` | Cron: `0 17 * * *` UTC (= **9 AM PST / 10 AM PDT** wall clock in California) |
 | `framers-email-router` | Inbound email forwarding | Email routing rules |
 | `tennisrecord-proxy` | Dev-only proxy for tennisrecord.com (bypasses local WiFi block) | HTTP (workers.dev) |
 
@@ -60,13 +60,18 @@ When an agent commits, pushes, or deploys:
    GIT_SSH_COMMAND="ssh -i /Users/hannes.magnusson/.ssh/id_ed25519-private-github -o IdentitiesOnly=yes" git push
    ```
 
-3. **Deploy**
+3. **Deploy** — main app (always when app code changed):
    ```bash
    npx opennextjs-cloudflare build
    npx wrangler deploy .open-next/worker.js
    ```
 
-Never use `--name` with `wrangler deploy` — it ignores `wrangler.jsonc` and creates a worker without secrets.
+4. **Other Workers** (only when their code or `wrangler` config changed, or the user asked to deploy everything):
+   - **`framers-cron`** — tiny worker that `fetch`es `https://framers.app/api/cron?key=…`; lives outside this repo. Redeploy from its source project if the trigger script or secret wiring changed.
+   - **`framers-email-router`** — `cd email-worker && npx wrangler deploy` (see table above for Resend secret).
+   - **`tennisrecord-proxy`** — dev-only; deploy only if that worker was modified.
+
+Never use `--name` with `wrangler deploy` on the main app — it ignores `wrangler.jsonc` and creates a worker without secrets.
 
 ## Network Quirks
 

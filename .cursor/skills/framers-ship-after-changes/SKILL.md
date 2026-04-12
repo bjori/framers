@@ -29,11 +29,13 @@ The project owner expects **shipping by default** when work on this repository i
    npx wrangler deploy .open-next/worker.js
    ```
 
+4. **Deploy everything (when the user asks)** — After the main worker: **`framers-cron`** is a separate Cloudflare Worker (not in this repo) that hits `/api/cron`; redeploy it from its own project if its script or bindings changed. In-repo: **`email-worker`** → `cd email-worker && npx wrangler deploy` when inbound email routing code changed (and confirm `RESEND_API_KEY` on that worker per `cloudflare-deployment.mdc`).
+
 ## Notes
 
 - If the task truly only touched files the user asked never to commit (e.g. they forbade markdown churn), follow the user’s constraint—but otherwise **ship**.
 - Same commands and warnings are documented in `.cursor/rules/project-overview.mdc` and `.cursor/rules/cloudflare-deployment.mdc`; keep them in sync if deploy steps change.
-- Other workers (`framers-cron`, `framers-email-router`, `tennisrecord-proxy`) are **not** deployed by this default flow unless the task changed them and the user expects it—say so explicitly if a second deploy is needed.
+- Default ship flow is **main app only**. Cron logic lives in `src/app/api/cron/route.ts` on **`greenbrook-framers`** — deploying the main app updates what `/api/cron` runs. The **`framers-cron`** worker only needs a redeploy when its fetch URL, secrets, or trigger schedule change (rare).
 
 ## Handoff
 

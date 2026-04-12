@@ -113,7 +113,7 @@ export default function UstaSyncPage() {
             (each needs <code className="text-[11px]">usta_team_id</code> on the team). Schedule and scorecards apply to everyone on USTA.
             Roster sync only sets the <strong>USTA registered</strong> flag for people on <em>this</em> team&apos;s Framers roster; it does not add members.
             Official USTA count can exceed Framers if players are on USTA but not added to the team in the app — those names are listed after sync.
-            Daily cron runs at 9 AM Pacific.
+            Daily cron runs at 17:00 UTC (9 AM PST / 10 AM PDT, America/Los_Angeles).
           </p>
           <button
             onClick={syncUsta}
