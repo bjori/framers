@@ -902,6 +902,20 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (body.action === "trigger-cron") {
+      const cronSecret = env.CRON_SECRET;
+      if (!cronSecret) {
+        return NextResponse.json({ error: "CRON_SECRET not set on this worker" }, { status: 500 });
+      }
+      const selfBinding = env.WORKER_SELF_REFERENCE;
+      const cronUrl = selfBinding
+        ? `https://framers.app/api/cron?key=${encodeURIComponent(cronSecret)}`
+        : `https://framers.app/api/cron?key=${encodeURIComponent(cronSecret)}`;
+      const cronRes = await fetch(cronUrl);
+      const cronBody = await cronRes.json();
+      return NextResponse.json({ ok: cronRes.ok, status: cronRes.status, cron: cronBody });
+    }
+
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
