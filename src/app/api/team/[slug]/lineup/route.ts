@@ -6,13 +6,9 @@ import { sendEmailBatch, emailTemplate, matchThreadHeaders, listSender } from "@
 import { displayLeagueMatchLocation } from "@/lib/league-venues";
 import { transitionMatch } from "@/lib/match-lifecycle";
 import { track } from "@/lib/analytics";
+import { expectedStarterPositions, vacantStarterPositionsFromPayload } from "@/lib/lineup-positions";
 
 type SlotPayload = { position: string; playerId: string | null };
-
-/** Starter lines with no player assigned (USTA default risk) */
-function vacantStarterSlots(slots: SlotPayload[], starterCount: number): { position: string }[] {
-  return slots.slice(0, starterCount).filter((s) => !s.playerId);
-}
 
 /** e.g. D3A+D3B → "Doubles 3" */
 function describeVacantLinesForEmail(vacant: { position: string }[]): string {
@@ -139,7 +135,7 @@ export async function POST(
           .all<{ player_id: string; is_alternate: number; acknowledged: number | null; acknowledged_at: string | null }>()
       ).results;
       for (const row of existing) {
-        if (row.is_alternate === 0) prevPlayerIds.add(row.player_id);
+        if (row.is_alternate === 0 && row.player_id) prevPlayerIds.add(row.player_id);
         if (row.acknowledged != null) {
           prevAcks.set(row.player_id, { acknowledged: row.acknowledged, acknowledged_at: row.acknowledged_at });
         }
@@ -171,9 +167,12 @@ export async function POST(
 
       if (matchInfo) {
         const dateStr = new Date(matchInfo.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-        const starterCount = format.singles + format.doubles * 2;
+        const expectedStarterSet = new Set(expectedStarterPositions(format));
         const newPlayerIds = new Set(
-          body.slots.slice(0, starterCount).map((s) => s.playerId).filter((id): id is string => Boolean(id)),
+          body.slots
+            .filter((s) => expectedStarterSet.has(s.position))
+            .map((s) => s.playerId)
+            .filter((id): id is string => Boolean(id)),
         );
         /** True only if lineup was already confirmed — not merely a draft save (fixes notify on first confirm from draft) */
         const wasAlreadyConfirmed = prevLineupStatus === "confirmed";
@@ -184,7 +183,7 @@ export async function POST(
           ? [...new Set([...addedIds, ...removedIds])]
           : [...new Set(body.slots.map((s) => s.playerId).filter((id): id is string => Boolean(id)))];
 
-        const vacantStarters = vacantStarterSlots(body.slots, starterCount);
+        const vacantStarters = vacantStarterPositionsFromPayload(body.slots, format);
         const hasVacantStarter = vacantStarters.length > 0;
         const slotPlayerIds = [...new Set(body.slots.map((s) => s.playerId).filter((id): id is string => Boolean(id)))];
         const allSlotPlayers = slotPlayerIds.length
@@ -193,10 +192,14 @@ export async function POST(
             ).bind(...slotPlayerIds).all<{ id: string; name: string }>()).results
           : [];
 
-        const lineupHtml = body.slots.map((s) => {
-          const p = allSlotPlayers.find((pl) => pl.id === s.playerId);
-          return `<li><strong>${s.position}</strong>: ${p?.name ?? "Vacant"}</li>`;
-        }).join("");
+        const slotByPos = new Map(body.slots.map((s) => [s.position, s]));
+        const lineupHtml = expectedStarterPositions(format)
+          .map((pos) => {
+            const s = slotByPos.get(pos);
+            const p = s?.playerId ? allSlotPlayers.find((pl) => pl.id === s.playerId) : undefined;
+            return `<li><strong>${pos}</strong>: ${p?.name ?? "Vacant"}</li>`;
+          })
+          .join("");
 
         let timeStr = "";
         if (matchInfo.match_time) {

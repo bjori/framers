@@ -1,4 +1,5 @@
 import { GREENBROOK_HOME_VENUE } from "@/lib/league-venues";
+import { fetchUstaOpponentVenue } from "@/lib/usta-venues";
 
 const USTA_BASE = "https://leagues.ustanorcal.com";
 
@@ -89,6 +90,8 @@ export interface SyncResult {
   ustaRosterNotOnFramers: string[];
   scheduleCreated: number;
   scheduleUpdated: number;
+  /** Rows updated with opponent venue (Teaminfo → organization address) */
+  awayVenuesUpdated: number;
 }
 
 export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<SyncResult> {
@@ -106,6 +109,7 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
       ustaRosterNotOnFramers: [],
       scheduleCreated: 0,
       scheduleUpdated: 0,
+      awayVenuesUpdated: 0,
     };
   }
 
@@ -248,6 +252,31 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     )
     .bind(GREENBROOK_HOME_VENUE, team.id)
     .run();
+
+  let awayVenuesUpdated = 0;
+  const awayOpponentIds = (
+    await db
+      .prepare(
+        `SELECT DISTINCT opponent_usta_team_id AS oid FROM league_matches
+         WHERE team_id = ? AND is_home = 0
+           AND opponent_usta_team_id IS NOT NULL AND TRIM(opponent_usta_team_id) != ''`,
+      )
+      .bind(team.id)
+      .all<{ oid: string }>()
+  ).results;
+  for (const { oid } of awayOpponentIds) {
+    const venue = await fetchUstaOpponentVenue(oid);
+    if (venue) {
+      const r = await db
+        .prepare(
+          "UPDATE league_matches SET location = ? WHERE team_id = ? AND is_home = 0 AND opponent_usta_team_id = ?",
+        )
+        .bind(venue, team.id, oid)
+        .run();
+      awayVenuesUpdated += r.meta?.changes ?? 0;
+    }
+    await new Promise((res) => setTimeout(res, 200));
+  }
 
   // Sync roster
   const rosterNames: string[] = [];
@@ -443,5 +472,6 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     ustaRosterNotOnFramers,
     scheduleCreated,
     scheduleUpdated,
+    awayVenuesUpdated,
   };
 }
