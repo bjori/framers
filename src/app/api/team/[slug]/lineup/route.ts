@@ -272,38 +272,48 @@ export async function POST(
           await sendEmailBatch(batch);
         }
 
-        // Everyone on the roster who is not on the card at all: explain vacant/default lines + RSVP nudge
-        if (hasVacantStarter) {
-          const lineDesc = describeVacantLinesForEmail(vacantStarters);
-          const inLineup = new Set(slotPlayerIds);
-          const rosterAll = (
-            await db.prepare(
-              `SELECT p.id, p.email, p.name FROM team_memberships tm
-               JOIN players p ON p.id = tm.player_id
-               WHERE tm.team_id = ? AND tm.active = 1`,
-            ).bind(team.id).all<{ id: string; email: string; name: string }>()
-          ).results;
-          const spectators = rosterAll.filter((m) => !inLineup.has(m.id));
-          if (spectators.length > 0) {
-            const threadHdrsSpect = matchThreadHeaders(body.matchId, { isFirst: false });
-            const spectBatch = spectators.map((p) => ({
-              to: p.email,
-              subject: `We need everyone — ${teamName} vs ${matchInfo.opponent_team} (${lineDesc} open)`,
-              ...senderInfo,
-              html: emailTemplate(
-                `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${p.name.split(" ")[0]},</h2>
-                 <p>The lineup for <strong>${matchInfo.opponent_team}</strong> (${matchInfo.is_home ? "Home" : "Away"}) is confirmed, but we are <strong>going in shorthanded</strong>: <strong>${lineDesc}</strong> still has open spot(s). In USTA play that usually means those line(s) will <strong>default</strong> — we don’t have enough available players who RSVP’d <strong>Yes</strong> to fill the card.</p>
-                 <p style="margin: 16px 0; padding: 14px 16px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; color: #78350f; font-size: 14px;"><strong>We need the whole team on this.</strong> Even when you’re not playing, please <strong>RSVP on Framers</strong> for every match as soon as you know your plans — <strong>Yes</strong> when you can help the team, <strong>No</strong> early when you can’t — so captains aren’t guessing. Your teammates are counting on everyone to show up in the app.</p>
-                 ${logisticsHtml}
-                 <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0;">Current lineup</h3>
-                 <ul style="padding-left: 20px; color: #334155;">${lineupHtml}</ul>
-                 <p style="margin-top: 16px; font-size: 14px; color: #64748b;">Thank you for helping us run a full lineup next time.</p>`,
-                { heading: "RSVP matters", ctaUrl: matchUrl, ctaLabel: "Open match & RSVP" },
-              ),
-              headers: threadHdrsSpect,
-            }));
-            await sendEmailBatch(spectBatch);
-          }
+        // Roster not on the card: always FYI with full lineup; extra RSVP / default copy only when starter lines are vacant
+        const inLineup = new Set(slotPlayerIds);
+        const rosterAll = (
+          await db.prepare(
+            `SELECT p.id, p.email, p.name FROM team_memberships tm
+             JOIN players p ON p.id = tm.player_id
+             WHERE tm.team_id = ? AND tm.active = 1`,
+          ).bind(team.id).all<{ id: string; email: string; name: string }>()
+        ).results;
+        const spectators = rosterAll.filter((m) => !inLineup.has(m.id));
+        if (spectators.length > 0) {
+          const threadHdrsSpect = matchThreadHeaders(body.matchId, { isFirst: false });
+          const lineDesc = hasVacantStarter ? describeVacantLinesForEmail(vacantStarters) : "";
+          const vacancyIntro = hasVacantStarter
+            ? `<p>The lineup for <strong>${matchInfo.opponent_team}</strong> (${matchInfo.is_home ? "Home" : "Away"}) is confirmed, but we are <strong>going in shorthanded</strong>: <strong>${lineDesc}</strong> still has open spot(s). In USTA play that usually means those line(s) will <strong>default</strong> — we don’t have enough available players who RSVP’d <strong>Yes</strong> to fill the card.</p>
+               <p style="margin: 16px 0; padding: 14px 16px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; color: #78350f; font-size: 14px;"><strong>We need the whole team on this.</strong> If you can play, please <strong>change your RSVP to Yes on Framers</strong> right away so we can slot you in before we have to default. Everyone else: <strong>Yes</strong> when you can help, <strong>No</strong> early when you can’t — so captains aren’t guessing. Your teammates are counting on everyone to show up in the app.</p>`
+            : `<p>The lineup for <strong>${matchInfo.opponent_team}</strong> (${matchInfo.is_home ? "Home" : "Away"}) has been ${wasAlreadyConfirmed ? "updated" : "confirmed"}. You’re not on this card — here’s the full lineup for your records.</p>
+               <p style="margin: 0 0 16px 0; font-size: 14px; color: #64748b;">Keeping your RSVPs current on Framers for every match still helps captains plan lineups and subs.</p>`;
+          const vacancyFooter = hasVacantStarter
+            ? `<p style="margin-top: 16px; font-size: 14px; color: #64748b;">Thank you for helping us run a full lineup next time.</p>`
+            : "";
+          const spectSubject = hasVacantStarter
+            ? `We need everyone — ${teamName} vs ${matchInfo.opponent_team} (${lineDesc} open)`
+            : `${wasAlreadyConfirmed ? "Lineup updated" : "Lineup confirmed"}: ${teamName} vs ${matchInfo.opponent_team}`;
+          const spectHeading = hasVacantStarter ? "RSVP matters" : "Team lineup";
+
+          const spectBatch = spectators.map((p) => ({
+            to: p.email,
+            subject: spectSubject,
+            ...senderInfo,
+            html: emailTemplate(
+              `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${p.name.split(" ")[0]},</h2>
+               ${vacancyIntro}
+               ${logisticsHtml}
+               <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0;">Full lineup</h3>
+               <ul style="padding-left: 20px; color: #334155;">${lineupHtml}</ul>
+               ${vacancyFooter}`,
+              { heading: spectHeading, ctaUrl: matchUrl, ctaLabel: hasVacantStarter ? "Open match & RSVP" : "View match" },
+            ),
+            headers: threadHdrsSpect,
+          }));
+          await sendEmailBatch(spectBatch);
         }
       }
     }
