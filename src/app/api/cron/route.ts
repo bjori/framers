@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { checkAutoTransitions } from "@/lib/match-lifecycle";
-import { sendEmailBatch, emailTemplate, matchThreadHeaders, listSender } from "@/lib/email";
+import { sendEmailBatch, emailTemplate, matchThreadHeaders, listSender, captainSignoff } from "@/lib/email";
 import { syncUstaTeam } from "@/lib/usta-sync";
 import { recalculateElo } from "@/lib/elo-recalc";
 import { gatherDigestData, generateDigestNarrative, buildDigestEmailHtml } from "@/lib/tournament-digest";
@@ -87,6 +87,7 @@ export async function GET(request: NextRequest) {
     if (nonResponders.length > 0) {
       const dateStr = new Date(match.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
       const sender = listSender(match.team_slug, match.team_name);
+      const signoff = await captainSignoff(match.team_id);
       const batch = nonResponders.map((m) => ({
         to: m.email,
         subject: `We need you! RSVP for ${match.opponent_team} on ${dateStr}`,
@@ -94,7 +95,8 @@ export async function GET(request: NextRequest) {
         html: emailTemplate(
           `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${m.name.split(" ")[0]},</h2>
            <p>We need your RSVP for our match against <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
-           <p>Please let us know if you can make it so we can finalize the lineup!</p>`,
+           <p>Please let us know if you can make it so we can finalize the lineup!</p>
+           <p style="margin-top: 16px; font-size: 14px; color: #475569;">&mdash; ${signoff}</p>`,
           {
             heading: "RSVP Needed",
             ctaUrl: `https://framers.app/team/${match.team_slug}/match/${match.id}`,
@@ -174,6 +176,7 @@ export async function GET(request: NextRequest) {
       daysUntilMatch: 7,
     });
     const sender = listSender(match.team_slug, match.team_name);
+    const signoff = await captainSignoff(match.team_id);
     const batch = targets.map((m) => ({
       to: m.email,
       subject: `One week out — need more Yes (${yesCount}/${needed}): ${match.team_name} vs ${match.opponent_team}`,
@@ -182,7 +185,8 @@ export async function GET(request: NextRequest) {
         `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${m.name.split(" ")[0]},</h2>
          <p><strong>One week from match day</strong> vs <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
          <p style="margin: 8px 0;">We have <strong>${yesCount}</strong> Yes RSVP${yesCount === 1 ? "" : "s"} on Framers and need <strong>${needed}</strong> to plan a full card. If you can play, please switch to <strong>Yes</strong>; if you truly cannot, keep No so we are not guessing.</p>
-         <p style="margin: 12px 0; font-size: 14px; color: #334155; white-space: pre-line;">${escapeEmailBody(shared)}</p>`,
+         <p style="margin: 12px 0; font-size: 14px; color: #334155; white-space: pre-line;">${escapeEmailBody(shared)}</p>
+         <p style="margin-top: 16px; font-size: 14px; color: #475569;">&mdash; ${signoff}</p>`,
         {
           heading: "RSVP — captains need bodies",
           ctaUrl: `https://framers.app/team/${match.team_slug}/match/${match.id}`,
@@ -281,6 +285,7 @@ export async function GET(request: NextRequest) {
       (new Date(match.match_date + "T12:00:00").getTime() - now.getTime()) / 86400000,
     );
     const sender = listSender(match.team_slug, match.team_name);
+    const signoff = await captainSignoff(match.team_id);
 
     let subject: string;
     let pitchEsc = "";
@@ -308,10 +313,12 @@ export async function GET(request: NextRequest) {
           ? `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${m.name.split(" ")[0]},</h2>
          <p>Match vs <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong> is <strong>${daysUntil} day${daysUntil === 1 ? "" : "s"}</strong> away.</p>
          <p style="margin: 8px 0;">We have <strong>${yesCount}</strong> Yes RSVP${yesCount === 1 ? "" : "s"} and need <strong>${needed}</strong> for a full lineup.</p>
-         <p style="margin: 12px 0; font-size: 14px; color: #334155; white-space: pre-line;">${pitchEsc}</p>`
+         <p style="margin: 12px 0; font-size: 14px; color: #334155; white-space: pre-line;">${pitchEsc}</p>
+         <p style="margin-top: 16px; font-size: 14px; color: #475569;">&mdash; ${signoff}</p>`
           : `<p>Hey ${m.name.split(" ")[0]},</p>
            <p>We still need your RSVP for <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
-           <p>Please let us know if you can make it so we can finalize the lineup!</p>`,
+           <p>Please let us know if you can make it so we can finalize the lineup!</p>
+           <p style="margin-top: 16px; font-size: 14px; color: #475569;">&mdash; ${signoff}</p>`,
         {
           heading: match.team_name,
           ctaUrl: `https://framers.app/team/${match.team_slug}/match/${match.id}`,
@@ -385,6 +392,7 @@ export async function GET(request: NextRequest) {
       });
 
       const sender = listSender(match.team_slug, match.team_name);
+      const signoff = await captainSignoff(match.team_id);
       let sent = 0;
       for (const m of targets) {
         const dedup = (
@@ -403,7 +411,8 @@ export async function GET(request: NextRequest) {
               `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #b45309;">Hey ${m.name.split(" ")[0]},</h2>
                <p>The lineup for <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong> still has open starter spot(s): <strong>${vacantLabel}</strong>.</p>
                <p style="margin: 12px 0; font-size: 14px; color: #334155; white-space: pre-line;">${escapeEmailBody(sharedLine)}</p>
-               <p style="margin-top: 12px; font-size: 13px; color: #64748b;">If you can flip to <strong>Yes</strong> (or even Maybe) so captains can slot you in, that would help us avoid defaulting a line.</p>`,
+               <p style="margin-top: 12px; font-size: 13px; color: #64748b;">If you can flip to <strong>Yes</strong> (or even Maybe) so we can slot you in, that would help us avoid defaulting a line.</p>
+               <p style="margin-top: 16px; font-size: 14px; color: #475569;">&mdash; ${signoff}</p>`,
               {
                 heading: "Lineup SOS",
                 ctaUrl: `https://framers.app/team/${match.team_slug}/match/${match.id}`,
@@ -645,6 +654,7 @@ export async function GET(request: NextRequest) {
       : "";
 
     // Send good luck email to everyone
+    const prematchSignoff = await captainSignoff(match.team_id);
     const subjectPrefix = isFinalMatch ? "Season finale" : "Good luck tomorrow";
     const goodLuckBatch = teamMembers.map((m) => ({
       to: m.email,
@@ -658,7 +668,8 @@ export async function GET(request: NextRequest) {
          ${historyHtml}
          ${narrativeHtml}
          ${lineupHtml}
-         <p style="margin-top: 16px; font-size: 15px; font-weight: 600; color: #0c4a6e;">Let's go Framers!</p>`,
+         <p style="margin-top: 16px; font-size: 15px; font-weight: 600; color: #0c4a6e;">Let's go Framers!</p>
+         <p style="margin-top: 8px; font-size: 14px; color: #475569;">&mdash; ${prematchSignoff}</p>`,
         { heading: isFinalMatch ? "Season Finale" : "Match Day", ctaUrl: matchUrl, ctaLabel: "View Match Details" }
       ),
       headers: matchThreadHeaders(match.id),

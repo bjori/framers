@@ -33,6 +33,34 @@ export function listSender(slug: string, displayName: string): { from: string; r
 }
 
 /**
+ * Look up captain + co-captain first names for a team.
+ * Returns e.g. "Hannes & Matt" or just "Hannes", falling back to "Your captains".
+ */
+export async function captainSignoff(teamId: string): Promise<string> {
+  try {
+    const { getDB } = await import("@/lib/db");
+    const db = await getDB();
+    const rows = (
+      await db
+        .prepare(
+          `SELECT p.name, tm.role FROM team_memberships tm
+           JOIN players p ON p.id = tm.player_id
+           WHERE tm.team_id = ? AND tm.role IN ('captain','co-captain') AND tm.active = 1
+           ORDER BY CASE tm.role WHEN 'captain' THEN 0 ELSE 1 END, p.name`,
+        )
+        .bind(teamId)
+        .all<{ name: string; role: string }>()
+    ).results;
+    const firstNames = rows.map((r) => r.name.split(" ")[0]);
+    if (firstNames.length === 0) return "Your captains";
+    if (firstNames.length === 1) return firstNames[0];
+    return `${firstNames.slice(0, -1).join(", ")} & ${firstNames[firstNames.length - 1]}`;
+  } catch {
+    return "Your captains";
+  }
+}
+
+/**
  * Generate email threading headers for match-related emails.
  * All emails about the same match share a thread via References/In-Reply-To.
  * The first email for a match should use `isFirst: true` to set Message-ID.
