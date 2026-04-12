@@ -2,16 +2,35 @@ const USTA_BASE = "https://leagues.ustanorcal.com";
 
 /**
  * From a USTA Teaminfo.asp HTML body: opponent home facility link → organization id + label.
+ * NorCal often splits markup across table cells (`Home facility:</td><td><a href=...`), so we
+ * try a strict pattern first, then search a window after "Home facility:" for organization.asp.
  */
 export function parseHomeFacilityFromTeaminfo(html: string): { orgId: string; label: string } | null {
-  const m = html.match(
+  const strict = html.match(
     /Home facility:\s*<a[^>]+href=["']([^"']*organization\.asp\?id=(\d+)[^"']*)["'][^>]*>([^<]+)<\/a>/i,
   );
-  if (!m) return null;
-  const orgId = m[2];
-  const label = m[3].replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim();
-  if (!orgId || !label) return null;
-  return { orgId, label };
+  if (strict) {
+    const orgId = strict[2];
+    const label = strict[3].replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim();
+    if (orgId && label) return { orgId, label };
+  }
+
+  const hf = html.match(/home\s+facility\s*:/i);
+  if (hf?.index == null) return null;
+  const slice = html.slice(hf.index, hf.index + 1200);
+  const loose = slice.match(
+    /<a[^>]+href=["']([^"']*organization\.asp\?id=(\d+)[^"']*)["'][^>]*>([^<]+)<\/a>/i,
+  );
+  if (loose) {
+    const orgId = loose[2];
+    const label = loose[3].replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim();
+    if (orgId && label) return { orgId, label };
+  }
+  const bare = slice.match(/organization\.asp\?id=(\d+)/i);
+  if (bare?.[1]) {
+    return { orgId: bare[1], label: "Opponent home facility" };
+  }
+  return null;
 }
 
 /** NorCal often puts raw spaces in `?q=` (not URL-encoded); decodeURIComponent then throws — handle both. */
