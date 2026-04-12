@@ -20,3 +20,15 @@ export function vacantStarterPositionsFromPayload(
   }
   return vacant;
 }
+
+/** e.g. D3A+D3B → "Doubles 3" */
+export function describeVacantStarterLines(vacant: { position: string }[]): string {
+  const roots = [...new Set(vacant.map((v) => v.position.replace(/[ab]$/i, "")))].sort();
+  return roots
+    .map((r) => {
+      if (/^D\d+$/i.test(r)) return `Doubles ${r.replace(/^D/i, "")}`;
+      if (/^S\d+$/i.test(r)) return `Singles ${r.replace(/^S/i, "")}`;
+      return r;
+    })
+    .join(", ");
+}

@@ -5,6 +5,11 @@ import { TeamTabs } from "@/components/team-tabs";
 import { LineupChat } from "@/components/lineup-chat";
 import { NextMatchCard, type NextMatchData } from "@/components/next-match-card";
 import { Suspense } from "react";
+import {
+  expectedStarterPositions,
+  vacantStarterPositionsFromPayload,
+  describeVacantStarterLines,
+} from "@/lib/lineup-positions";
 
 interface LeagueMatch {
   id: string;
@@ -66,7 +71,8 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
   ).results;
 
   const format = JSON.parse(team.match_format || "{}");
-  const totalLines = (format.singles || 0) + (format.doubles || 0);
+  const starterFormat = { singles: format.singles ?? 1, doubles: format.doubles ?? 3 };
+  const totalLines = starterFormat.singles + starterFormat.doubles;
   const wins = matches.filter((m) => m.team_result === "win").length;
   const losses = matches.filter((m) => m.team_result === "loss").length;
   const record = `${wins}-${losses}`;
@@ -86,7 +92,7 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
       .all<{ player_id: string; player_name: string; match_id: string; status: string | null }>()
   ).results;
 
-  const neededPlayers = (format.singles || 0) + (format.doubles || 0) * 2;
+  const neededPlayers = starterFormat.singles + starterFormat.doubles * 2;
 
   const emptyScheduleMessage = matches.length === 0 && team.status === "upcoming"
     ? "Schedule is TBD, likely available March 20th. Check back soon!"
@@ -100,15 +106,36 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
       "SELECT id, status, confirmed_at, locked_at FROM lineups WHERE match_id = ?"
     ).bind(nextMatch.id).first<{ id: string; status: string; confirmed_at: string | null; locked_at: string | null }>();
 
-    let lineupSlots: { position: string; player_name: string; player_id: string; acknowledged: number | null }[] = [];
+    let lineupSlots: { position: string; player_name: string | null; player_id: string | null; acknowledged: number | null }[] = [];
+    let vacantLinesLabel: string | null = null;
     if (lineup) {
-      lineupSlots = (await db.prepare(
-        `SELECT ls.position, p.name as player_name, ls.player_id, ls.acknowledged
-         FROM lineup_slots ls
-         JOIN players p ON p.id = ls.player_id
-         WHERE ls.lineup_id = ? AND ls.is_alternate = 0
-         ORDER BY ls.position`
-      ).bind(lineup.id).all<{ position: string; player_name: string; player_id: string; acknowledged: number | null }>()).results;
+      const rawSlots = (
+        await db.prepare(
+          `SELECT ls.position, p.name as player_name, ls.player_id, ls.acknowledged
+           FROM lineup_slots ls
+           LEFT JOIN players p ON p.id = ls.player_id
+           WHERE ls.lineup_id = ? AND ls.is_alternate = 0`,
+        )
+          .bind(lineup.id)
+          .all<{ position: string; player_name: string | null; player_id: string | null; acknowledged: number | null }>()
+      ).results;
+      const byPos = new Map(rawSlots.map((r) => [r.position, r]));
+      const slotsForVacancy = expectedStarterPositions(starterFormat).map((position) => ({
+        position,
+        playerId: byPos.get(position)?.player_id ?? null,
+      }));
+      const vacant = vacantStarterPositionsFromPayload(slotsForVacancy, starterFormat);
+      if (vacant.length > 0) vacantLinesLabel = describeVacantStarterLines(vacant);
+
+      lineupSlots = expectedStarterPositions(starterFormat).map((position) => {
+        const r = byPos.get(position);
+        return {
+          position,
+          player_name: r?.player_name ?? null,
+          player_id: r?.player_id ?? null,
+          acknowledged: r?.acknowledged ?? null,
+        };
+      });
     }
 
     const rsvpCounts = await db.prepare(
@@ -128,7 +155,8 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
       }
     } catch { /* column may not exist yet */ }
 
-    const allConfirmed = lineupSlots.length > 0 && lineupSlots.every((s) => s.acknowledged === 1);
+    const allConfirmed =
+      lineupSlots.length > 0 && lineupSlots.every((s) => s.player_id && s.acknowledged === 1);
 
     let lineupStatusLabel = "Awaiting lineup";
     if (lineup) {
@@ -149,9 +177,10 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
       lineupSlots: lineupSlots.map((s) => ({
         position: s.position,
         playerName: s.player_name,
-        playerId: s.player_id,
+        playerId: s.player_id ?? "",
         acknowledged: s.acknowledged === 1,
       })),
+      vacantLinesLabel,
       rsvp: rsvpCounts ? { yes: rsvpCounts.yes_count, maybe: rsvpCounts.maybe_count, no: rsvpCounts.no_count } : { yes: 0, maybe: 0, no: 0 },
       preview,
       slug,

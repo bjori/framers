@@ -11,7 +11,7 @@ export interface NextMatchData {
   lineupStatus: string;
   lineupSlots: {
     position: string;
-    playerName: string;
+    playerName: string | null;
     playerId: string;
     acknowledged: boolean;
   }[];
@@ -22,6 +22,8 @@ export interface NextMatchData {
     generatedAt: string;
   } | null;
   slug: string;
+  /** Human-readable vacant lines (e.g. "Doubles 3"); null when full card */
+  vacantLinesLabel: string | null;
 }
 
 const POSITION_LABELS: Record<string, string> = {
@@ -68,6 +70,19 @@ export function NextMatchCard({ data }: { data: NextMatchData }) {
       href={`/team/${data.slug}/match/${data.matchId}`}
       className="block bg-gradient-to-br from-sky-50 to-indigo-50 dark:from-sky-950/40 dark:to-indigo-950/30 border border-sky-200 dark:border-sky-800 rounded-xl p-4 sm:p-5 hover:border-sky-400 dark:hover:border-sky-600 transition-colors"
     >
+      {data.vacantLinesLabel && (
+        <div
+          role="alert"
+          className="mb-3 rounded-lg border border-danger/40 bg-danger/10 dark:bg-danger/20 px-3 py-2.5 text-sm text-danger dark:text-red-200"
+        >
+          <p className="font-bold text-danger dark:text-red-100">Shorthanded — default risk</p>
+          <p className="mt-1 leading-snug">
+            <strong>{data.vacantLinesLabel}</strong> still has open spot(s). In USTA play that usually means those line(s) will{" "}
+            <strong>default</strong>. If you can play, switch your RSVP to <strong>Yes</strong> on this match so captains can slot you in.
+          </p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
@@ -108,10 +123,12 @@ export function NextMatchCard({ data }: { data: NextMatchData }) {
         <div className="border-t border-sky-200/50 dark:border-sky-800/50 pt-3 space-y-1.5">
           {Array.from(positionGroups.entries()).map(([pos, players]) => {
             const insight = insightMap.get(pos);
-            const isDoubles = pos.startsWith("D");
-            const names = players.map((p) => p.playerName.split(" ")[0]).join(" & ");
-            const allAcked = players.every((p) => p.acknowledged);
-            const anyPending = players.some((p) => !p.acknowledged);
+            const names = players
+              .map((p) => (p.playerName?.trim() ? p.playerName.split(" ")[0] : "Vacant"))
+              .join(" & ");
+            const hasVacant = players.some((p) => !p.playerName?.trim());
+            const allAcked = players.every((p) => p.playerName?.trim() && p.acknowledged);
+            const anyPending = players.some((p) => p.playerName?.trim() && !p.acknowledged);
 
             return (
               <div key={pos} className="flex items-start gap-3">
@@ -120,7 +137,13 @@ export function NextMatchCard({ data }: { data: NextMatchData }) {
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                    <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{names}</span>
+                    <span
+                      className={`text-sm font-medium ${
+                        hasVacant ? "text-danger dark:text-red-300" : "text-slate-800 dark:text-slate-200"
+                      }`}
+                    >
+                      {names}
+                    </span>
                     {allAcked && (
                       <span className="text-[9px] text-accent shrink-0" title="Confirmed">✓</span>
                     )}

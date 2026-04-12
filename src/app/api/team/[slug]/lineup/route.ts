@@ -6,21 +6,9 @@ import { sendEmailBatch, emailTemplate, matchThreadHeaders, listSender } from "@
 import { displayLeagueMatchLocation } from "@/lib/league-venues";
 import { transitionMatch } from "@/lib/match-lifecycle";
 import { track } from "@/lib/analytics";
-import { expectedStarterPositions, vacantStarterPositionsFromPayload } from "@/lib/lineup-positions";
+import { expectedStarterPositions, vacantStarterPositionsFromPayload, describeVacantStarterLines } from "@/lib/lineup-positions";
 
 type SlotPayload = { position: string; playerId: string | null };
-
-/** e.g. D3A+D3B → "Doubles 3" */
-function describeVacantLinesForEmail(vacant: { position: string }[]): string {
-  const roots = [...new Set(vacant.map((v) => v.position.replace(/[ab]$/i, "")))].sort();
-  return roots
-    .map((r) => {
-      if (/^D\d+$/i.test(r)) return `Doubles ${r.replace(/^D/i, "")}`;
-      if (/^S\d+$/i.test(r)) return `Singles ${r.replace(/^S/i, "")}`;
-      return r;
-    })
-    .join(", ");
-}
 
 export async function POST(
   request: NextRequest,
@@ -288,7 +276,7 @@ export async function POST(
         const spectators = rosterAll.filter((m) => !inLineup.has(m.id));
         if (spectators.length > 0) {
           const threadHdrsSpect = matchThreadHeaders(body.matchId, { isFirst: false });
-          const lineDesc = hasVacantStarter ? describeVacantLinesForEmail(vacantStarters) : "";
+          const lineDesc = hasVacantStarter ? describeVacantStarterLines(vacantStarters) : "";
           const vacancyIntro = hasVacantStarter
             ? `<p>The lineup for <strong>${matchInfo.opponent_team}</strong> (${matchInfo.is_home ? "Home" : "Away"}) is confirmed, but we are <strong>going in shorthanded</strong>: <strong>${lineDesc}</strong> still has open spot(s). In USTA play that usually means those line(s) will <strong>default</strong> — we don’t have enough available players who RSVP’d <strong>Yes</strong> to fill the card.</p>
                <p style="margin: 16px 0; padding: 14px 16px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; color: #78350f; font-size: 14px;"><strong>We need the whole team on this.</strong> If you can play, please <strong>change your RSVP to Yes on Framers</strong> right away so we can slot you in before we have to default. Everyone else: <strong>Yes</strong> when you can help, <strong>No</strong> early when you can’t — so captains aren’t guessing. Your teammates are counting on everyone to show up in the app.</p>`
