@@ -6,6 +6,25 @@ import { sendEmailBatch, emailTemplate, matchThreadHeaders, listSender } from "@
 import { transitionMatch } from "@/lib/match-lifecycle";
 import { track } from "@/lib/analytics";
 
+type SlotPayload = { position: string; playerId: string | null };
+
+/** Starter lines with no player assigned (USTA default risk) */
+function vacantStarterSlots(slots: SlotPayload[], starterCount: number): { position: string }[] {
+  return slots.slice(0, starterCount).filter((s) => !s.playerId);
+}
+
+/** e.g. D3A+D3B → "Doubles 3" */
+function describeVacantLinesForEmail(vacant: { position: string }[]): string {
+  const roots = [...new Set(vacant.map((v) => v.position.replace(/[ab]$/i, "")))].sort();
+  return roots
+    .map((r) => {
+      if (/^D\d+$/i.test(r)) return `Doubles ${r.replace(/^D/i, "")}`;
+      if (/^S\d+$/i.test(r)) return `Singles ${r.replace(/^S/i, "")}`;
+      return r;
+    })
+    .join(", ");
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -16,7 +35,7 @@ export async function POST(
   }
 
   const { slug } = await params;
-  const body = (await request.json()) as { matchId: string; action: "generate" | "confirm" | "save"; slots?: { position: string; playerId: string }[] };
+  const body = (await request.json()) as { matchId: string; action: "generate" | "confirm" | "save"; slots?: SlotPayload[] };
   const db = await getDB();
 
   const team = await db.prepare("SELECT * FROM teams WHERE slug = ?").bind(slug)
@@ -136,9 +155,9 @@ export async function POST(
 
     await db.batch(
       body.slots.map((s, i) => {
-        const prev = prevAcks.get(s.playerId);
+        const prev = s.playerId ? prevAcks.get(s.playerId) : undefined;
         return db.prepare("INSERT INTO lineup_slots (id, lineup_id, position, player_id, is_alternate, acknowledged, acknowledged_at) VALUES (?,?,?,?,?,?,?)")
-          .bind(crypto.randomUUID(), lineupId, s.position, s.playerId, i >= (format.singles + format.doubles * 2) ? 1 : 0, prev?.acknowledged ?? null, prev?.acknowledged_at ?? null);
+          .bind(crypto.randomUUID(), lineupId, s.position, s.playerId ?? null, i >= (format.singles + format.doubles * 2) ? 1 : 0, prev?.acknowledged ?? null, prev?.acknowledged_at ?? null);
       })
     );
 
@@ -152,7 +171,9 @@ export async function POST(
       if (matchInfo) {
         const dateStr = new Date(matchInfo.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
         const starterCount = format.singles + format.doubles * 2;
-        const newPlayerIds = new Set(body.slots.slice(0, starterCount).map((s) => s.playerId));
+        const newPlayerIds = new Set(
+          body.slots.slice(0, starterCount).map((s) => s.playerId).filter((id): id is string => Boolean(id)),
+        );
         /** True only if lineup was already confirmed — not merely a draft save (fixes notify on first confirm from draft) */
         const wasAlreadyConfirmed = prevLineupStatus === "confirmed";
         const addedIds = [...newPlayerIds].filter((id) => !prevPlayerIds.has(id));
@@ -160,33 +181,29 @@ export async function POST(
 
         const allRelevantIds = wasAlreadyConfirmed
           ? [...new Set([...addedIds, ...removedIds])]
-          : [...new Set(body.slots.map((s) => s.playerId))];
+          : [...new Set(body.slots.map((s) => s.playerId).filter((id): id is string => Boolean(id)))];
 
-        if (allRelevantIds.length > 0) {
-          const players = (
-            await db.prepare(
-              `SELECT id, name, email FROM players WHERE id IN (${allRelevantIds.map(() => "?").join(",")})`
-            ).bind(...allRelevantIds).all<{ id: string; name: string; email: string }>()
-          ).results;
+        const vacantStarters = vacantStarterSlots(body.slots, starterCount);
+        const hasVacantStarter = vacantStarters.length > 0;
+        const slotPlayerIds = [...new Set(body.slots.map((s) => s.playerId).filter((id): id is string => Boolean(id)))];
+        const allSlotPlayers = slotPlayerIds.length
+          ? (await db.prepare(
+              `SELECT id, name FROM players WHERE id IN (${slotPlayerIds.map(() => "?").join(",")})`,
+            ).bind(...slotPlayerIds).all<{ id: string; name: string }>()).results
+          : [];
 
-          const allSlotPlayers = (
-            await db.prepare(
-              `SELECT id, name FROM players WHERE id IN (${[...new Set(body.slots.map((s) => s.playerId))].map(() => "?").join(",")})`
-            ).bind(...[...new Set(body.slots.map((s) => s.playerId))]).all<{ id: string; name: string }>()
-          ).results;
+        const lineupHtml = body.slots.map((s) => {
+          const p = allSlotPlayers.find((pl) => pl.id === s.playerId);
+          return `<li><strong>${s.position}</strong>: ${p?.name ?? "Vacant"}</li>`;
+        }).join("");
 
-          const lineupHtml = body.slots.map((s) => {
-            const p = allSlotPlayers.find((pl) => pl.id === s.playerId);
-            return `<li><strong>${s.position}</strong>: ${p?.name ?? "TBD"}</li>`;
-          }).join("");
+        let timeStr = "";
+        if (matchInfo.match_time) {
+          const [h, m] = matchInfo.match_time.split(":").map(Number);
+          timeStr = `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+        }
 
-          let timeStr = "";
-          if (matchInfo.match_time) {
-            const [h, m] = matchInfo.match_time.split(":").map(Number);
-            timeStr = `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
-          }
-
-          const logisticsHtml = `
+        const logisticsHtml = `
             <table role="presentation" style="width: 100%; margin: 16px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0;">
               <tr>
                 <td style="padding: 12px 16px; border-right: 1px solid #e2e8f0; width: 50%;">
@@ -201,13 +218,20 @@ export async function POST(
               ${matchInfo.notes ? `<tr><td colspan="2" style="padding: 8px 16px; border-top: 1px solid #e2e8f0;"><p style="margin: 0; font-size: 13px; color: #475569;">${matchInfo.notes}</p></td></tr>` : ""}
             </table>`;
 
-          const matchUrl = `https://framers.app/team/${slug}/match/${body.matchId}`;
+        const matchUrl = `https://framers.app/team/${slug}/match/${body.matchId}`;
+        const teamName = (await db.prepare("SELECT name FROM teams WHERE id = ?").bind(team.id).first<{ name: string }>())?.name ?? "";
+        const threadHdrs = matchThreadHeaders(body.matchId, { isFirst: !wasAlreadyConfirmed });
+        const senderInfo = listSender(slug, teamName);
+
+        if (allRelevantIds.length > 0) {
+          const players = (
+            await db.prepare(
+              `SELECT id, name, email FROM players WHERE id IN (${allRelevantIds.map(() => "?").join(",")})`
+            ).bind(...allRelevantIds).all<{ id: string; name: string; email: string }>()
+          ).results;
+
           const addedSet = new Set(addedIds);
           const removedSet = new Set(removedIds);
-
-          const teamName = (await db.prepare("SELECT name FROM teams WHERE id = ?").bind(team.id).first<{ name: string }>())?.name ?? "";
-          const threadHdrs = matchThreadHeaders(body.matchId, { isFirst: !wasAlreadyConfirmed });
-          const senderInfo = listSender(slug, teamName);
 
           const batch = players.map((p) => {
             if (removedSet.has(p.id)) {
@@ -246,6 +270,40 @@ export async function POST(
             };
           });
           await sendEmailBatch(batch);
+        }
+
+        // Everyone on the roster who is not on the card at all: explain vacant/default lines + RSVP nudge
+        if (hasVacantStarter) {
+          const lineDesc = describeVacantLinesForEmail(vacantStarters);
+          const inLineup = new Set(slotPlayerIds);
+          const rosterAll = (
+            await db.prepare(
+              `SELECT p.id, p.email, p.name FROM team_memberships tm
+               JOIN players p ON p.id = tm.player_id
+               WHERE tm.team_id = ? AND tm.active = 1`,
+            ).bind(team.id).all<{ id: string; email: string; name: string }>()
+          ).results;
+          const spectators = rosterAll.filter((m) => !inLineup.has(m.id));
+          if (spectators.length > 0) {
+            const threadHdrsSpect = matchThreadHeaders(body.matchId, { isFirst: false });
+            const spectBatch = spectators.map((p) => ({
+              to: p.email,
+              subject: `We need everyone — ${teamName} vs ${matchInfo.opponent_team} (${lineDesc} open)`,
+              ...senderInfo,
+              html: emailTemplate(
+                `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${p.name.split(" ")[0]},</h2>
+                 <p>The lineup for <strong>${matchInfo.opponent_team}</strong> (${matchInfo.is_home ? "Home" : "Away"}) is confirmed, but we are <strong>going in shorthanded</strong>: <strong>${lineDesc}</strong> still has open spot(s). In USTA play that usually means those line(s) will <strong>default</strong> — we don’t have enough available players who RSVP’d <strong>Yes</strong> to fill the card.</p>
+                 <p style="margin: 16px 0; padding: 14px 16px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; color: #78350f; font-size: 14px;"><strong>We need the whole team on this.</strong> Even when you’re not playing, please <strong>RSVP on Framers</strong> for every match as soon as you know your plans — <strong>Yes</strong> when you can help the team, <strong>No</strong> early when you can’t — so captains aren’t guessing. Your teammates are counting on everyone to show up in the app.</p>
+                 ${logisticsHtml}
+                 <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0;">Current lineup</h3>
+                 <ul style="padding-left: 20px; color: #334155;">${lineupHtml}</ul>
+                 <p style="margin-top: 16px; font-size: 14px; color: #64748b;">Thank you for helping us run a full lineup next time.</p>`,
+                { heading: "RSVP matters", ctaUrl: matchUrl, ctaLabel: "Open match & RSVP" },
+              ),
+              headers: threadHdrsSpect,
+            }));
+            await sendEmailBatch(spectBatch);
+          }
         }
       }
     }
