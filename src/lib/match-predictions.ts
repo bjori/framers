@@ -42,7 +42,7 @@ async function callGpt(systemPrompt: string, userContent: string): Promise<strin
   }
 }
 
-const QUIP_SYSTEM = `You write short, entertaining match previews for the Greenbrook Singles World Championships — an internal tennis tournament in San Ramon, CA. Write in a gambling/sports-commentary style. Use first names only. Include the win probability naturally. One or two sentences max, under 35 words. No emojis. Be bold with your takes — pick a side, call out streaks, rivalries, and upsets waiting to happen.`;
+const QUIP_SYSTEM = `You write short, entertaining match previews for the Greenbrook Singles World Championships — an internal tennis tournament at Greenbrook. Write in a gambling/sports-commentary style. Use first names only. Include the win probability naturally. One or two sentences max, under 35 words. No emojis. Be bold with your takes — pick a side, call out streaks, rivalries, and upsets waiting to happen.`;
 
 interface PlayerMatchData {
   name: string;

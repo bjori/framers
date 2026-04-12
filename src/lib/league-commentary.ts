@@ -82,7 +82,7 @@ export async function generatePreMatchCommentary(data: PreMatchData): Promise<st
 - If head-to-head history with specific opponents is provided, reference revenge opportunities or past battles`
     : "";
 
-  const system = `You are the hype-man for the Greenbrook Framers, a neighborhood USTA tennis team in San Ramon, CA. Write a short, energizing pre-match preview for tomorrow's match. Be genuinely enthusiastic but not cheesy. Use first names for players when mentioning them. No emojis.
+  const system = `You are the hype-man for the Greenbrook Framers, a neighborhood USTA tennis team at Greenbrook. Write a short, energizing pre-match preview for tomorrow's match. Be genuinely enthusiastic but not cheesy. Use first names for players when mentioning them. No emojis.
 
 Write 2-3 short paragraphs in HTML using only <p> and <strong> tags. Keep it under 150 words. Include:
 - A take on what this match means for the season (especially if it's the final match or a must-win)
@@ -128,7 +128,7 @@ export async function generatePostMatchCommentary(data: PostMatchData): Promise<
 - A 3-set loss against a stronger opponent is a gutsy performance worth highlighting`
     : "";
 
-  const system = `You are the match reporter for the Greenbrook Framers, a neighborhood USTA tennis team in San Ramon, CA. Write a brief, engaging match recap. Be ${isWin ? "celebratory but classy" : "honest but encouraging"} in tone. Use first names for players. No emojis.
+  const system = `You are the match reporter for the Greenbrook Framers, a neighborhood USTA tennis team at Greenbrook. Write a brief, engaging match recap. Be ${isWin ? "celebratory but classy" : "honest but encouraging"} in tone. Use first names for players. No emojis.
 
 Write 2-3 short paragraphs in HTML using only <p> and <strong> tags. Keep it under 150 words. Include:
 - The overall result and what it means for the season
