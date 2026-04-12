@@ -25,9 +25,9 @@ export interface NextMatchData {
 }
 
 const POSITION_LABELS: Record<string, string> = {
-  D1: "Doubles 1", D1a: "D1", D1b: "D1",
-  D2: "Doubles 2", D2a: "D2", D2b: "D2",
-  D3: "Doubles 3", D3a: "D3", D3b: "D3",
+  D1: "Doubles 1",
+  D2: "Doubles 2",
+  D3: "Doubles 3",
   S1: "Singles 1",
   S2: "Singles 2",
 };
@@ -114,18 +114,23 @@ export function NextMatchCard({ data }: { data: NextMatchData }) {
             const anyPending = players.some((p) => !p.acknowledged);
 
             return (
-              <div key={pos} className="flex items-start gap-2">
-                <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 w-6 pt-0.5 shrink-0">
+              <div key={pos} className="flex items-start gap-3">
+                <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 shrink-0 min-w-[5.25rem] sm:min-w-[6.25rem] leading-tight pt-0.5">
                   {POSITION_LABELS[pos] ?? pos}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                     <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{names}</span>
                     {allAcked && (
-                      <span className="text-[9px] text-accent" title="Confirmed">✓</span>
+                      <span className="text-[9px] text-accent shrink-0" title="Confirmed">✓</span>
                     )}
                     {anyPending && !allAcked && (
-                      <span className="text-[9px] text-amber-500" title="Awaiting confirmation">?</span>
+                      <span
+                        className="text-[9px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400 shrink-0"
+                        title="Awaiting lineup confirmation on match page"
+                      >
+                        pending
+                      </span>
                     )}
                   </div>
                   {insight && (

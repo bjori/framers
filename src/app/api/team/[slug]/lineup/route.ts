@@ -104,6 +104,11 @@ export async function POST(
     // Upsert lineup
     let lineupId = (await db.prepare("SELECT id FROM lineups WHERE match_id = ?").bind(body.matchId).first<{ id: string }>())?.id;
 
+    let prevLineupStatus: string | null = null;
+    if (lineupId) {
+      prevLineupStatus = (await db.prepare("SELECT status FROM lineups WHERE id = ?").bind(lineupId).first<{ status: string }>())?.status ?? null;
+    }
+
     const prevAcks = new Map<string, { acknowledged: number | null; acknowledged_at: string | null }>();
     const prevPlayerIds = new Set<string>();
     if (lineupId) {
@@ -148,11 +153,12 @@ export async function POST(
         const dateStr = new Date(matchInfo.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
         const starterCount = format.singles + format.doubles * 2;
         const newPlayerIds = new Set(body.slots.slice(0, starterCount).map((s) => s.playerId));
-        const isReconfirm = prevPlayerIds.size > 0;
+        /** True only if lineup was already confirmed — not merely a draft save (fixes notify on first confirm from draft) */
+        const wasAlreadyConfirmed = prevLineupStatus === "confirmed";
         const addedIds = [...newPlayerIds].filter((id) => !prevPlayerIds.has(id));
         const removedIds = [...prevPlayerIds].filter((id) => !newPlayerIds.has(id));
 
-        const allRelevantIds = isReconfirm
+        const allRelevantIds = wasAlreadyConfirmed
           ? [...new Set([...addedIds, ...removedIds])]
           : [...new Set(body.slots.map((s) => s.playerId))];
 
@@ -200,7 +206,7 @@ export async function POST(
           const removedSet = new Set(removedIds);
 
           const teamName = (await db.prepare("SELECT name FROM teams WHERE id = ?").bind(team.id).first<{ name: string }>())?.name ?? "";
-          const threadHdrs = matchThreadHeaders(body.matchId, { isFirst: !isReconfirm });
+          const threadHdrs = matchThreadHeaders(body.matchId, { isFirst: !wasAlreadyConfirmed });
           const senderInfo = listSender(slug, teamName);
 
           const batch = players.map((p) => {
@@ -222,11 +228,11 @@ export async function POST(
             const myPositions = body.slots!.filter((s) => s.playerId === p.id).map((s) => s.position).join(", ");
             return {
               to: p.email,
-              subject: `${isReconfirm && addedSet.has(p.id) ? "You've been added: " : "Lineup confirmed: "}${teamName} vs ${matchInfo!.opponent_team}`,
+              subject: `${wasAlreadyConfirmed && addedSet.has(p.id) ? "You've been added: " : "Lineup confirmed: "}${teamName} vs ${matchInfo!.opponent_team}`,
               ...senderInfo,
               html: emailTemplate(
                 `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">You're playing, ${p.name.split(" ")[0]}!</h2>
-                 <p>The lineup for <strong>${matchInfo!.opponent_team}</strong> (${matchInfo!.is_home ? "Home" : "Away"}) has been ${isReconfirm ? "updated" : "confirmed"}.</p>
+                 <p>The lineup for <strong>${matchInfo!.opponent_team}</strong> (${matchInfo!.is_home ? "Home" : "Away"}) has been ${wasAlreadyConfirmed ? "updated" : "confirmed"}.</p>
                  ${logisticsHtml}
                  <p style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; font-weight: 600; color: #166534;">
                    Your position: ${myPositions}
@@ -234,7 +240,7 @@ export async function POST(
                  <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0;">Full Lineup</h3>
                  <ul style="padding-left: 20px; color: #334155;">${lineupHtml}</ul>
                  <p style="margin-top: 20px; font-size: 14px; font-weight: 600; color: #0c4a6e;">Please confirm you can make it:</p>`,
-                { heading: isReconfirm ? "Lineup Updated" : "Lineup Confirmed", ctaUrl: matchUrl, ctaLabel: "Confirm I'll Be There", secondaryCtaUrl: matchUrl, secondaryCtaLabel: "Shit Happened, Can't Make It" }
+                { heading: wasAlreadyConfirmed ? "Lineup Updated" : "Lineup Confirmed", ctaUrl: matchUrl, ctaLabel: "Confirm I'll Be There", secondaryCtaUrl: matchUrl, secondaryCtaLabel: "Shit Happened, Can't Make It" }
               ),
               headers: threadHdrs,
             };
