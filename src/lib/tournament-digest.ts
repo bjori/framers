@@ -73,6 +73,14 @@ export interface DigestData {
   eloChanges: EloChange[];
   biggestUpset: WeekResult | null;
   upcomingMatches: UpcomingMatch[];
+  /** Every non-bye match completed */
+  seasonComplete: boolean;
+  /** Top finisher with zero losses (round-robin perfect season) */
+  undefeatedChampion: { name: string; wins: number; losses: number } | null;
+  /** Everyone with 0 wins (usually one person in a full round robin) */
+  winlessPlayers: { name: string; wins: number; losses: number }[];
+  digestKind: "weekly" | "season_finale";
+  emailSubject: string;
 }
 
 function parseScore(s: string | null): number[] {
@@ -168,20 +176,30 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
   ).bind(tournament.id).all<TournamentMatch & { pre_match_quip: string | null; win_probability: number | null }>()).results;
 
   const totalWeeks = Math.max(...allMatches.map((m) => m.week), 0);
-  const completedWeeks = new Set(
-    allMatches.filter((m) => m.status === "completed").map((m) => m.week)
-  );
+  const completedMatches = allMatches.filter((m) => m.status === "completed");
+  const seasonComplete =
+    allMatches.length > 0 && allMatches.every((m) => m.status === "completed");
 
-  // "This week" = matches completed in the last 7 days
+  // "This week" = matches completed in the last 7 days (cron sends Sunday)
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-  const thisWeekResults = allMatches.filter(
+  let thisWeekResults = allMatches.filter(
     (m) => m.status === "completed" && m.updated_at && m.updated_at >= weekAgo
   );
+
+  if (thisWeekResults.length === 0 && seasonComplete) {
+    const maxWeek = Math.max(...completedMatches.map((m) => m.week), 0);
+    thisWeekResults = completedMatches.filter((m) => m.week === maxWeek);
+  }
+  if (thisWeekResults.length === 0 && seasonComplete && completedMatches.length > 0) {
+    thisWeekResults = completedMatches;
+  }
 
   if (thisWeekResults.length === 0) return null;
 
   // Figure out current week number from the latest completed matches
-  const currentWeek = Math.max(...thisWeekResults.map((m) => m.week), 0);
+  const currentWeek = seasonComplete
+    ? totalWeeks
+    : Math.max(...thisWeekResults.map((m) => m.week), 0);
 
   const standings = computeStandings(allMatches, participants);
   const standingsByParticipant = new Map(standings.map((s) => [s.participant_id, s]));
@@ -234,7 +252,7 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
 
   // Upcoming matches: next week's scheduled matches
   const upcomingMatches: UpcomingMatch[] = allMatches
-    .filter((m) => m.status === "scheduled" && m.week === currentWeek + 1)
+    .filter((m) => m.status === "scheduled" && m.week === currentWeek + 1 && !seasonComplete)
     .map((m) => {
       const p1Standing = standingsByParticipant.get(m.participant1_id);
       const p2Standing = standingsByParticipant.get(m.participant2_id);
@@ -253,10 +271,27 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
       };
     });
 
+  const top = standings[0];
+  const undefeatedChampion =
+    top && top.losses === 0 && top.wins > 0
+      ? { name: top.name, wins: top.wins, losses: top.losses }
+      : null;
+
+  const winlessPlayers = standings.filter((s) => s.wins === 0 && s.matches > 0);
+
+  const digestKind: DigestData["digestKind"] = seasonComplete ? "season_finale" : "weekly";
+  const weekLabel = seasonComplete
+    ? `Season complete — ${totalWeeks} weeks of battle`
+    : `Week ${currentWeek} of ${totalWeeks}`;
+
+  const emailSubject = seasonComplete
+    ? `${tournament.name} — Season finale: champion crowned!`
+    : `${tournament.name} — ${weekLabel} recap`;
+
   return {
     tournamentName: tournament.name,
     tournamentSlug: tournament.slug,
-    weekLabel: `Week ${currentWeek} of ${totalWeeks}`,
+    weekLabel,
     currentWeek,
     totalWeeks,
     results,
@@ -264,6 +299,11 @@ export async function gatherDigestData(db: D1Database, tournamentSlug: string): 
     eloChanges,
     biggestUpset,
     upcomingMatches,
+    seasonComplete,
+    undefeatedChampion,
+    winlessPlayers,
+    digestKind,
+    emailSubject,
   };
 }
 
@@ -273,16 +313,88 @@ export async function generateDigestNarrative(data: DigestData): Promise<string>
     const apiKey = env.OPENAI_API_KEY;
     if (!apiKey) return "";
 
+    const standingsPayload = data.standings.map((s, i) => ({
+      rank: i + 1,
+      name: s.name,
+      record: `${s.wins}-${s.losses}`,
+      sets: `${s.setsWon}-${s.setsLost}`,
+      elo: s.elo,
+    }));
+
+    const resultsPayload = data.results.map((r) => ({
+      winner: r.winnerName,
+      loser: r.p1Name === r.winnerName ? r.p2Name : r.p1Name,
+      score: r.score,
+      isUpset: r.isUpset,
+      winnerEloDelta: r.p1Name === r.winnerName ? r.p1EloDelta : r.p2EloDelta,
+    }));
+
+    if (data.digestKind === "season_finale") {
+      const prompt = {
+        season: "Greenbrook Singles World Championships — full season round robin finished",
+        standings: standingsPayload,
+        finalWeekResults: resultsPayload,
+        undefeatedChampion: data.undefeatedChampion,
+        winlessPlayers: data.winlessPlayers.map((w) => w.name),
+        biggestUpset: data.biggestUpset
+          ? {
+              winner: data.biggestUpset.winnerName,
+              loser: data.biggestUpset.p1Name === data.biggestUpset.winnerName ? data.biggestUpset.p2Name : data.biggestUpset.p1Name,
+              score: data.biggestUpset.score,
+            }
+          : null,
+        totalWeeks: data.totalWeeks,
+      };
+
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          temperature: 0.92,
+          max_tokens: 900,
+          messages: [
+            {
+              role: "system",
+              content: `You are the lead voice of the Greenbrook Singles World Championships — think ESPN Finals night meets neighborhood block party. The season is OVER. This is the season-ending wrap-up email to everyone who played.
+
+Your tone must be electric, warm, and genuinely celebratory. First names only for players. No emojis. No mockery.
+
+Required structure — use these exact H3 headers in order:
+
+### And the champion is…
+Open with MAXIMUM hype for the undefeated champion (if undefeatedChampion is provided: zero losses, perfect season). If for some reason there is no undefeated player, still celebrate the #1 finisher in standings with equal enthusiasm. This section should be the longest and most excited — banners, legacy, perfection, neighborhood legend energy.
+
+### Season standouts
+Call out several other great stories from the standings: strong records, comeback seasons, tight races, memorable upsets, or anyone who made the league more fun. Spread the love across multiple players.
+
+### Hats off to our battlers
+The player(s) listed in winlessPlayers went winless through the full season — congratulate them sincerely for showing up every week, taking the tough matches, and keeping the round robin honest. Frame it as grit and heart, never shame. If winlessPlayers is empty, skip this section entirely (do not include the header).
+
+### That's a wrap
+One short closing paragraph: gratitude for the season, the courts, and each other.
+
+Keep it under 450 words. HTML only: <h3>, <p>, <strong> tags.`,
+            },
+            { role: "user", content: JSON.stringify(prompt) },
+          ],
+        }),
+      });
+
+      if (!res.ok) {
+        console.error("[DIGEST] GPT call failed:", await res.text());
+        return "";
+      }
+      const json = (await res.json()) as { choices: { message: { content: string } }[] };
+      return json.choices[0]?.message?.content ?? "";
+    }
+
     const prompt = {
       standings: data.standings.slice(0, 10).map((s, i) => ({
         rank: i + 1, name: s.name, record: `${s.wins}-${s.losses}`,
         sets: `${s.setsWon}-${s.setsLost}`, elo: s.elo,
       })),
-      thisWeekResults: data.results.map((r) => ({
-        winner: r.winnerName, loser: r.p1Name === r.winnerName ? r.p2Name : r.p1Name,
-        score: r.score, isUpset: r.isUpset,
-        winnerEloDelta: r.p1Name === r.winnerName ? r.p1EloDelta : r.p2EloDelta,
-      })),
+      thisWeekResults: resultsPayload,
       nextWeekMatches: data.upcomingMatches.map((m) => ({
         p1: `${m.p1Name} (#${m.p1Rank}, ${m.p1Record})`,
         p2: `${m.p2Name} (#${m.p2Rank}, ${m.p2Record})`,
@@ -350,8 +462,10 @@ export function buildDigestEmailHtml(data: DigestData, narrative: string): strin
     </tr>`;
   }).join("");
 
+  const standingsTitle = data.digestKind === "season_finale" ? "Final standings" : "Standings";
+
   const standingsHtml = `
-    <h3 style="font-size: 15px; color: #0c4a6e; margin: 24px 0 8px 0;">Standings</h3>
+    <h3 style="font-size: 15px; color: #0c4a6e; margin: 24px 0 8px 0;">${standingsTitle}</h3>
     <table role="presentation" style="width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0; border-collapse: collapse; font-size: 13px;">
       <tr style="background: #f1f5f9;">
         <th style="padding: 8px 10px; text-align: center; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b;">#</th>
@@ -375,8 +489,10 @@ export function buildDigestEmailHtml(data: DigestData, narrative: string): strin
     </tr>`;
   }).join("");
 
+  const resultsSectionTitle = data.digestKind === "season_finale" ? "Final matches" : "This Week's Results";
+
   const resultsHtml = data.results.length > 0 ? `
-    <h3 style="font-size: 15px; color: #0c4a6e; margin: 24px 0 8px 0;">This Week's Results</h3>
+    <h3 style="font-size: 15px; color: #0c4a6e; margin: 24px 0 8px 0;">${resultsSectionTitle}</h3>
     <table role="presentation" style="width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0; border-collapse: collapse; font-size: 13px;">
       <tr style="background: #f1f5f9;">
         <th style="padding: 8px 10px; text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b;">Winner</th>
@@ -427,9 +543,28 @@ export function buildDigestEmailHtml(data: DigestData, narrative: string): strin
       ${upcomingRows}
     </table>` : "";
 
+  const finaleHero =
+    data.digestKind === "season_finale" && data.undefeatedChampion
+      ? `<div style="margin: 0 0 20px 0; padding: 18px 20px; background: linear-gradient(135deg, #0c4a6e 0%, #0369a1 50%, #0ea5e9 100%); border-radius: 12px; text-align: center;">
+           <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #bae6fd;">Undefeated champion</p>
+           <p style="margin: 0; font-size: 22px; font-weight: 800; color: #ffffff; line-height: 1.2;">${data.undefeatedChampion.name.split(" ")[0]}</p>
+           <p style="margin: 8px 0 0 0; font-size: 14px; font-weight: 600; color: #e0f2fe;">${data.undefeatedChampion.wins}-${data.undefeatedChampion.losses} · perfect season</p>
+         </div>`
+      : data.digestKind === "season_finale"
+        ? `<div style="margin: 0 0 20px 0; padding: 16px 18px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; text-align: center;">
+             <p style="margin: 0; font-size: 15px; font-weight: 700; color: #0c4a6e;">Season complete — thanks for an incredible run</p>
+           </div>`
+        : "";
+
+  const subline =
+    data.digestKind === "season_finale"
+      ? "Season finale — full round robin in the books"
+      : `${data.results.length} match${data.results.length !== 1 ? "es" : ""} completed this week`;
+
   const content = `
+    ${finaleHero}
     <h2 style="margin: 0 0 4px 0; font-size: 20px; color: #0c4a6e;">${data.weekLabel}</h2>
-    <p style="margin: 0 0 20px 0; font-size: 13px; color: #94a3b8;">${data.results.length} match${data.results.length !== 1 ? "es" : ""} completed this week</p>
+    <p style="margin: 0 0 20px 0; font-size: 13px; color: #94a3b8;">${subline}</p>
     ${narrative ? `<div style="margin: 0 0 8px 0; font-size: 14px; line-height: 1.7; color: #334155;">${narrative}</div><hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">` : ""}
     ${resultsHtml}
     ${standingsHtml}
@@ -438,6 +573,6 @@ export function buildDigestEmailHtml(data: DigestData, narrative: string): strin
   return emailTemplate(content, {
     heading: data.tournamentName,
     ctaUrl: `https://framers.app/tournament/${data.tournamentSlug}`,
-    ctaLabel: "View Full Standings",
+    ctaLabel: data.digestKind === "season_finale" ? "Relive the season" : "View Full Standings",
   });
 }

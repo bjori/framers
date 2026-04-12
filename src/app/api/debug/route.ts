@@ -843,6 +843,39 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (body.action === "send-tournament-weekly-digest") {
+      const tournamentSlug = (body as { tournamentSlug?: string }).tournamentSlug;
+      if (!tournamentSlug) return NextResponse.json({ error: "tournamentSlug required" }, { status: 400 });
+      const { gatherDigestData, generateDigestNarrative, buildDigestEmailHtml } = await import("@/lib/tournament-digest");
+      const data = await gatherDigestData(db, tournamentSlug);
+      if (!data) {
+        return NextResponse.json(
+          { error: "No digest data (tournament not active, or no scorable results yet)" },
+          { status: 400 }
+        );
+      }
+      const narrative = await generateDigestNarrative(data);
+      const html = buildDigestEmailHtml(data, narrative);
+      const participants = (
+        await db.prepare(
+          `SELECT p.email FROM tournament_participants tp
+           JOIN players p ON p.id = tp.player_id
+           WHERE tp.tournament_id = (SELECT id FROM tournaments WHERE slug = ?)`
+        ).bind(tournamentSlug).all<{ email: string }>()
+      ).results;
+      const digestSender = listSender(data.tournamentSlug, data.tournamentName);
+      await sendEmailBatch(
+        participants.map((p) => ({ to: p.email, subject: data.emailSubject, ...digestSender, html }))
+      );
+      return NextResponse.json({
+        ok: true,
+        digestKind: data.digestKind,
+        subject: data.emailSubject,
+        recipients: participants.length,
+        hint: "Sunday cron may skip if tournament_weekly_digest already sent for this date",
+      });
+    }
+
     if (body.action === "mark-milestone-sent") {
       const matchIds = (body as { matchIds: string[] }).matchIds;
       if (!Array.isArray(matchIds) || matchIds.length === 0) {

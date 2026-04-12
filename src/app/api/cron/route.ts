@@ -919,7 +919,7 @@ export async function GET(request: NextRequest) {
         ).bind(t.slug).all<{ email: string; name: string }>()).results;
 
         const digestSender = listSender(t.slug, data.tournamentName);
-        const subject = `${data.tournamentName} — ${data.weekLabel} Recap`;
+        const subject = data.emailSubject;
         const batch = participants.map((p) => ({ to: p.email, subject, ...digestSender, html }));
 
         await sendEmailBatch(batch);
