@@ -12,6 +12,7 @@ import { OpponentScouting } from "@/components/opponent-scouting";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { displayLeagueMatchLocation } from "@/lib/league-venues";
 import { vacantLinesLabelForLeagueMatch } from "@/lib/lineup-vacancy";
+import { expectedStarterPositions } from "@/lib/lineup-positions";
 
 interface RsvpResponse {
   player_id: string;
@@ -76,9 +77,9 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
       await db
         .prepare(
           `SELECT ls.position, p.name as player_name, ls.player_id, ls.is_alternate, ls.acknowledged,
-                  p.singles_elo, p.doubles_elo
+                  COALESCE(p.singles_elo, 0) as singles_elo, COALESCE(p.doubles_elo, 0) as doubles_elo
            FROM lineup_slots ls
-           JOIN players p ON p.id = ls.player_id
+           LEFT JOIN players p ON p.id = ls.player_id
            WHERE ls.lineup_id = ?
            ORDER BY ls.position`
         )
@@ -144,7 +145,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
         .all<{ id: string; name: string; singles_elo: number; doubles_elo: number; rsvp_status: string | null }>()
     ).results;
 
-    editableSlots = lineupSlots
+    const slotsFromDb = lineupSlots
       .filter((s) => s.is_alternate === 0 || s.is_alternate === -1)
       .map((s) => ({
         position: s.position,
@@ -154,8 +155,14 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
         doublesElo: s.is_alternate === -1 ? 0 : s.doubles_elo,
         acknowledged: s.acknowledged,
         withdrawnName: s.is_alternate === -1 ? s.player_name : null,
-      }))
-      .sort((a, b) => (positionOrder[a.position] ?? 99) - (positionOrder[b.position] ?? 99));
+      }));
+    const existingPositions = new Set(slotsFromDb.map((s) => s.position));
+    for (const pos of expectedStarterPositions(format)) {
+      if (!existingPositions.has(pos)) {
+        slotsFromDb.push({ position: pos, playerId: null, playerName: null, singlesElo: 0, doublesElo: 0, acknowledged: null, withdrawnName: null });
+      }
+    }
+    editableSlots = slotsFromDb.sort((a, b) => (positionOrder[a.position] ?? 99) - (positionOrder[b.position] ?? 99));
 
     const activeStarterIds = new Set(
       lineupSlots.filter((s) => s.is_alternate === 0).map((s) => s.player_id)
@@ -353,17 +360,21 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
           </h2>
           <div className="bg-surface-alt rounded-xl border border-border overflow-hidden divide-y divide-border">
             {lineupSlots.filter((s) => s.is_alternate === 0 || s.is_alternate === -1).map((s) => (
-              <div key={s.position} className={`flex items-center justify-between px-4 py-3 ${s.is_alternate === -1 ? "bg-danger/5" : ""}`}>
+              <div key={s.position} className={`flex items-center justify-between px-4 py-3 ${s.is_alternate === -1 ? "bg-danger/5" : !s.player_id ? "bg-amber-50 dark:bg-amber-900/10" : ""}`}>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold uppercase text-slate-400 w-8">{s.position}</span>
-                  <Link href={`/player/${s.player_id}`} className={`font-medium text-sm hover:underline ${s.is_alternate === -1 ? "line-through text-slate-400" : "text-primary-light"}`}>
-                    {s.player_name}
-                  </Link>
+                  {s.player_id ? (
+                    <Link href={`/player/${s.player_id}`} className={`font-medium text-sm hover:underline ${s.is_alternate === -1 ? "line-through text-slate-400" : "text-primary-light"}`}>
+                      {s.player_name}
+                    </Link>
+                  ) : (
+                    <span className="font-medium text-sm text-slate-400 italic">Vacant</span>
+                  )}
                   {s.is_alternate === -1 && (
                     <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-danger/10 text-danger">Withdrawn</span>
                   )}
                 </div>
-                {lineup!.status === "confirmed" && s.is_alternate === 0 && (
+                {lineup!.status === "confirmed" && s.is_alternate === 0 && s.player_id && (
                   <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
                     s.acknowledged === 1 ? "bg-accent/10 text-accent" :
                     s.acknowledged === 0 ? "bg-danger/10 text-danger" :
