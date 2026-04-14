@@ -82,6 +82,64 @@ export async function POST(
 
   await track("rsvp_league", { playerId: session.player_id, detail: `${body.matchId}:${body.status}` });
 
+  // If player stepped up (changed to "yes" after lineup was already confirmed), thank them and notify captains
+  if (body.status === "yes" && prevRsvp?.status !== "yes") {
+    const matchDetails = await db.prepare(
+      `SELECT lm.status as match_status, lm.opponent_team, lm.match_date,
+              t.slug as team_slug, t.name as team_name
+       FROM league_matches lm
+       JOIN teams t ON t.id = lm.team_id
+       WHERE lm.id = ?`
+    ).bind(body.matchId).first<{
+      match_status: string; opponent_team: string; match_date: string; team_slug: string; team_name: string;
+    }>();
+
+    if (matchDetails && ["lineup_confirmed", "locked"].includes(matchDetails.match_status)) {
+      const dateStr = new Date(matchDetails.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      const matchUrl = `https://framers.app/team/${matchDetails.team_slug}/match/${body.matchId}`;
+
+      const captains = (
+        await db.prepare(
+          `SELECT p.email, p.name FROM team_memberships tm
+           JOIN players p ON p.id = tm.player_id
+           WHERE tm.team_id = ? AND tm.role IN ('captain', 'co-captain') AND tm.active = 1`
+        ).bind(team.id).all<{ email: string; name: string }>()
+      ).results;
+
+      for (const c of captains) {
+        await sendEmail({
+          to: c.email,
+          subject: `${session.name} is now available — ${matchDetails.opponent_team} (${dateStr})`,
+          html: emailTemplate(
+            `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #166534;">Player Available</h2>
+             <p><strong>${session.name}</strong> has changed their RSVP to <strong>Yes</strong> for the match against <strong>${matchDetails.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
+             <p>If you have open spots in the lineup, you can add them now.</p>`,
+            {
+              heading: "Lineup Update",
+              ctaUrl: matchUrl,
+              ctaLabel: "Update Lineup",
+            }
+          ),
+        });
+      }
+
+      await sendEmail({
+        to: session.email,
+        subject: `Thanks for stepping up, ${session.name.split(" ")[0]}!`,
+        html: emailTemplate(
+          `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #166534;">You're a team player, ${session.name.split(" ")[0]}!</h2>
+           <p>Thanks for making yourself available for the match against <strong>${matchDetails.opponent_team}</strong> on <strong>${dateStr}</strong>. The captains have been notified and will update the lineup.</p>
+           <p>Keep an eye on your email — you'll get a lineup confirmation once you've been slotted in.</p>`,
+          {
+            heading: matchDetails.team_name,
+            ctaUrl: matchUrl,
+            ctaLabel: "View Match",
+          }
+        ),
+      });
+    }
+  }
+
   // If player withdrew (changed to "no"), check if they were in a confirmed lineup
   if (body.status === "no" && prevRsvp?.status !== "no") {
     const matchDetails = await db.prepare(
