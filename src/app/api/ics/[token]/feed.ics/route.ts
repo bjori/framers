@@ -50,7 +50,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
   // League matches + lineup data for this player
   const teamMatches = (await db.prepare(
     `SELECT lm.id, lm.match_date, lm.match_time, lm.opponent_team, lm.location,
-            lm.is_home, lm.status, lm.team_score, lm.notes, lm.usta_url,
+            lm.is_home, lm.status, lm.team_score, lm.notes, lm.captain_notes, lm.usta_url,
             t.name as team_name, t.slug as team_slug,
             a.status as rsvp_status,
             l.id as lineup_id, l.status as lineup_status
@@ -63,7 +63,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
   ).bind(player.id, player.id).all()).results as Array<{
     id: string; match_date: string; match_time: string | null; opponent_team: string;
     location: string | null; is_home: number; status: string; team_score: string | null;
-    notes: string | null; usta_url: string | null;
+    notes: string | null; captain_notes: string | null; usta_url: string | null;
     team_name: string; team_slug: string; rsvp_status: string | null;
     lineup_id: string | null; lineup_status: string | null;
   }>;
@@ -122,6 +122,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
     if (m.rsvp_status) descParts.push(`Your RSVP: ${m.rsvp_status}`);
     if (m.team_score) descParts.push(`Result: ${m.team_score}`);
     if (m.notes) descParts.push(`\nNotes: ${m.notes}`);
+    if (m.captain_notes) descParts.push(`\nCaptain's Note: ${m.captain_notes}`);
 
     if (lineupConfirmed && slots.length > 0) {
       descParts.push("\nLineup:");

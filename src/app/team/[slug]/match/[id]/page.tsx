@@ -46,7 +46,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
       id: string; round_number: number; opponent_team: string; match_date: string;
       match_time: string | null; location: string | null; is_home: number;
       team_result: string | null; team_score: string | null; status: string;
-      notes: string | null; usta_url: string | null;
+      notes: string | null; captain_notes: string | null; usta_url: string | null;
     }>();
   if (!match) notFound();
 
@@ -280,10 +280,18 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
               currentTime={match.match_time}
               currentLocation={whereLabel === "TBD" ? "" : whereLabel}
               currentNotes={match.notes}
+              currentCaptainNotes={match.captain_notes}
             />
           </div>
         )}
       </div>
+
+      {match.captain_notes && (
+        <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-4 py-3.5">
+          <p className="text-[10px] font-bold uppercase text-amber-700 dark:text-amber-400 tracking-wider mb-1">Captain&apos;s Note</p>
+          <p className="text-sm text-amber-900 dark:text-amber-100 whitespace-pre-line">{match.captain_notes}</p>
+        </div>
+      )}
 
       {/* My RSVP — only for active team members; hidden when in confirmed lineup (use ack buttons instead) */}
       {session && isActiveTeamMember && !isPast && !myLineupSlot && (

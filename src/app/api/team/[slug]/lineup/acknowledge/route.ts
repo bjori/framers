@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { sendEmail, sendEmailBatch, emailTemplate, matchThreadHeaders, listSender } from "@/lib/email";
-import { displayLeagueMatchLocation } from "@/lib/league-venues";
+import { buildLogisticsHtml } from "@/lib/email-logistics";
 import { track } from "@/lib/analytics";
 
 const POSITION_LABELS: Record<string, string> = {
@@ -123,10 +123,10 @@ async function sendLineupLockedEmail(
   slug: string,
 ) {
   const matchInfo = await db.prepare(
-    "SELECT opponent_team, match_date, match_time, location, notes, is_home FROM league_matches WHERE id = ?"
+    "SELECT opponent_team, match_date, match_time, location, notes, captain_notes, is_home FROM league_matches WHERE id = ?"
   ).bind(matchId).first<{
     opponent_team: string; match_date: string; match_time: string | null;
-    location: string | null; notes: string | null; is_home: number;
+    location: string | null; notes: string | null; captain_notes: string | null; is_home: number;
   }>();
   if (!matchInfo) return;
 
@@ -158,20 +158,10 @@ async function sendLineupLockedEmail(
     ? `<p style="margin: 8px 0 0 0; font-size: 13px; color: #64748b;">Alternates: ${alternates.map((a) => a.name).join(", ")}</p>`
     : "";
 
-  const logisticsHtml = `
-    <table role="presentation" style="width: 100%; margin: 16px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0;">
-      <tr>
-        <td style="padding: 12px 16px; border-right: 1px solid #e2e8f0; width: 50%;">
-          <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">When</p>
-          <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${dateStr}${timeStr ? ` · ${timeStr}` : ""}</p>
-        </td>
-        <td style="padding: 12px 16px; width: 50%;">
-          <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">Where</p>
-          <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${displayLeagueMatchLocation(matchInfo.location, matchInfo.is_home)}</p>
-        </td>
-      </tr>
-      ${matchInfo.notes ? `<tr><td colspan="2" style="padding: 8px 16px; border-top: 1px solid #e2e8f0;"><p style="margin: 0; font-size: 13px; color: #475569;">${matchInfo.notes}</p></td></tr>` : ""}
-    </table>`;
+  const logisticsHtml = buildLogisticsHtml({
+    dateStr, timeStr, location: matchInfo.location, isHome: matchInfo.is_home,
+    notes: matchInfo.notes, captainNotes: matchInfo.captain_notes,
+  });
 
   const lineupTableHtml = `
     <table role="presentation" style="width: 100%; margin: 12px 0; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0; border-collapse: collapse;">

@@ -31,13 +31,14 @@ export async function PATCH(
     match_time?: string | null;
     location?: string | null;
     notes?: string | null;
+    captain_notes?: string | null;
   };
 
   await db
     .prepare(
-      "UPDATE league_matches SET match_time = ?, location = ?, notes = ? WHERE id = ? AND team_id = ?"
+      "UPDATE league_matches SET match_time = ?, location = ?, notes = ?, captain_notes = ? WHERE id = ? AND team_id = ?"
     )
-    .bind(body.match_time ?? null, body.location ?? null, body.notes ?? null, id, team.id)
+    .bind(body.match_time ?? null, body.location ?? null, body.notes ?? null, body.captain_notes ?? null, id, team.id)
     .run();
 
   track("match_details_edited", { playerId: session.player_id, detail: `match:${id}` });

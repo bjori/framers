@@ -3,7 +3,7 @@ import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { optimizeLineup, type AvailablePlayer } from "@/lib/lineup-optimizer";
 import { sendEmailBatch, emailTemplate, matchThreadHeaders, listSender } from "@/lib/email";
-import { displayLeagueMatchLocation } from "@/lib/league-venues";
+import { buildLogisticsHtml } from "@/lib/email-logistics";
 import { transitionMatch } from "@/lib/match-lifecycle";
 import { track } from "@/lib/analytics";
 import { expectedStarterPositions, vacantStarterPositionsFromPayload, describeVacantStarterLines } from "@/lib/lineup-positions";
@@ -150,8 +150,8 @@ export async function POST(
       await transitionMatch(body.matchId, "lineup_confirmed", { id: session.player_id, name: session.name });
 
       const matchInfo = await db.prepare(
-        "SELECT opponent_team, match_date, match_time, location, notes, is_home FROM league_matches WHERE id = ?"
-      ).bind(body.matchId).first<{ opponent_team: string; match_date: string; match_time: string | null; location: string | null; notes: string | null; is_home: number }>();
+        "SELECT opponent_team, match_date, match_time, location, notes, captain_notes, is_home FROM league_matches WHERE id = ?"
+      ).bind(body.matchId).first<{ opponent_team: string; match_date: string; match_time: string | null; location: string | null; notes: string | null; captain_notes: string | null; is_home: number }>();
 
       if (matchInfo) {
         const dateStr = new Date(matchInfo.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
@@ -195,20 +195,10 @@ export async function POST(
           timeStr = `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
         }
 
-        const logisticsHtml = `
-            <table role="presentation" style="width: 100%; margin: 16px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0;">
-              <tr>
-                <td style="padding: 12px 16px; border-right: 1px solid #e2e8f0; width: 50%;">
-                  <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">When</p>
-                  <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${dateStr}${timeStr ? ` · ${timeStr}` : ""}</p>
-                </td>
-                <td style="padding: 12px 16px; width: 50%;">
-                  <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">Where</p>
-                  <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${displayLeagueMatchLocation(matchInfo.location, matchInfo.is_home)}</p>
-                </td>
-              </tr>
-              ${matchInfo.notes ? `<tr><td colspan="2" style="padding: 8px 16px; border-top: 1px solid #e2e8f0;"><p style="margin: 0; font-size: 13px; color: #475569;">${matchInfo.notes}</p></td></tr>` : ""}
-            </table>`;
+        const logisticsHtml = buildLogisticsHtml({
+          dateStr, timeStr, location: matchInfo.location, isHome: matchInfo.is_home,
+          notes: matchInfo.notes, captainNotes: matchInfo.captain_notes,
+        });
 
         const matchUrl = `https://framers.app/team/${slug}/match/${body.matchId}`;
         const teamName = (await db.prepare("SELECT name FROM teams WHERE id = ?").bind(team.id).first<{ name: string }>())?.name ?? "";

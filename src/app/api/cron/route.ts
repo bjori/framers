@@ -9,6 +9,7 @@ import { gatherDigestData, generateDigestNarrative, buildDigestEmailHtml } from 
 import { detectMilestones, generateMilestoneDigestQuip, type Milestone } from "@/lib/tournament-milestones";
 import { generatePreMatchCommentary, generatePostMatchCommentary } from "@/lib/league-commentary";
 import { displayLeagueMatchLocation } from "@/lib/league-venues";
+import { buildLogisticsHtml, buildCaptainNoteHtml } from "@/lib/email-logistics";
 import { neededStarterCount, vacantLinesLabelForLeagueMatch } from "@/lib/lineup-vacancy";
 import { generateRsvpNeedMoreYesPitch, generateShorthandedLineupPitch } from "@/lib/league-shorthanded-nudge-email";
 
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
   const twoWeeksOut = new Date(now.getTime() + 14 * 86400000).toISOString().slice(0, 10);
   const weNeedYouMatches = (
     await db.prepare(
-      `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id,
+      `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id, lm.captain_notes,
               t.name as team_name, t.slug as team_slug
        FROM league_matches lm
        JOIN teams t ON t.id = lm.team_id
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
          AND (lm.is_home = 1 OR (lm.notes IS NOT NULL AND trim(lm.notes) != ''))`
     ).bind(twoWeeksOut).all<{
       id: string; opponent_team: string; match_date: string; team_id: string;
-      team_name: string; team_slug: string;
+      team_name: string; team_slug: string; captain_notes: string | null;
     }>()
   ).results;
 
@@ -96,6 +97,7 @@ export async function GET(request: NextRequest) {
           `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${m.name.split(" ")[0]},</h2>
            <p>We need your RSVP for our match against <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
            <p>Please let us know if you can make it so we can finalize the lineup!</p>
+           ${buildCaptainNoteHtml(match.captain_notes)}
            <p style="margin-top: 16px; font-size: 14px; color: #475569;">&mdash; ${signoff}</p>`,
           {
             heading: "RSVP Needed",
@@ -121,7 +123,7 @@ export async function GET(request: NextRequest) {
   const oneWeekOut = new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10);
   const weekLeadMatches = (
     await db.prepare(
-      `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id,
+      `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id, lm.captain_notes,
               t.name as team_name, t.slug as team_slug, t.match_format as match_format
        FROM league_matches lm
        JOIN teams t ON t.id = lm.team_id
@@ -132,7 +134,7 @@ export async function GET(request: NextRequest) {
       .bind(oneWeekOut)
       .all<{
         id: string; opponent_team: string; match_date: string; team_id: string;
-        team_name: string; team_slug: string; match_format: string;
+        team_name: string; team_slug: string; match_format: string; captain_notes: string | null;
       }>()
   ).results;
 
@@ -186,6 +188,7 @@ export async function GET(request: NextRequest) {
          <p><strong>One week from match day</strong> vs <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
          <p style="margin: 8px 0;">We have <strong>${yesCount}</strong> Yes RSVP${yesCount === 1 ? "" : "s"} on Framers and need <strong>${needed}</strong> to plan a full card. If you can play, please switch to <strong>Yes</strong>; if you truly cannot, keep No so we are not guessing.</p>
          <p style="margin: 12px 0; font-size: 14px; color: #334155; white-space: pre-line;">${escapeEmailBody(shared)}</p>
+         ${buildCaptainNoteHtml(match.captain_notes)}
          <p style="margin-top: 16px; font-size: 14px; color: #475569;">&mdash; ${signoff}</p>`,
         {
           heading: "RSVP — captains need bodies",
@@ -210,7 +213,7 @@ export async function GET(request: NextRequest) {
 
   const upcomingMatches = (
     await db.prepare(
-      `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id,
+      `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id, lm.captain_notes,
               t.name as team_name, t.slug as team_slug, t.match_format as match_format
        FROM league_matches lm
        JOIN teams t ON t.id = lm.team_id
@@ -221,7 +224,7 @@ export async function GET(request: NextRequest) {
       .bind(remindShortStart, remindShortEnd)
       .all<{
         id: string; opponent_team: string; match_date: string; team_id: string;
-        team_name: string; team_slug: string; match_format: string;
+        team_name: string; team_slug: string; match_format: string; captain_notes: string | null;
       }>()
   ).results;
 
@@ -314,10 +317,12 @@ export async function GET(request: NextRequest) {
          <p>Match vs <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong> is <strong>${daysUntil} day${daysUntil === 1 ? "" : "s"}</strong> away.</p>
          <p style="margin: 8px 0;">We have <strong>${yesCount}</strong> Yes RSVP${yesCount === 1 ? "" : "s"} and need <strong>${needed}</strong> for a full lineup.</p>
          <p style="margin: 12px 0; font-size: 14px; color: #334155; white-space: pre-line;">${pitchEsc}</p>
+         ${buildCaptainNoteHtml(match.captain_notes)}
          <p style="margin-top: 16px; font-size: 14px; color: #475569;">&mdash; ${signoff}</p>`
           : `<p>Hey ${m.name.split(" ")[0]},</p>
            <p>We still need your RSVP for <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong>.</p>
            <p>Please let us know if you can make it so we can finalize the lineup!</p>
+           ${buildCaptainNoteHtml(match.captain_notes)}
            <p style="margin-top: 16px; font-size: 14px; color: #475569;">&mdash; ${signoff}</p>`,
         {
           heading: match.team_name,
@@ -342,7 +347,7 @@ export async function GET(request: NextRequest) {
     const targetDate = new Date(now.getTime() + phaseDays * 86400000).toISOString().slice(0, 10);
     const shortLineupMatches = (
       await db.prepare(
-        `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id,
+        `SELECT lm.id, lm.opponent_team, lm.match_date, lm.team_id, lm.captain_notes,
                 t.name as team_name, t.slug as team_slug, t.match_format as match_format
          FROM league_matches lm
          JOIN teams t ON t.id = lm.team_id
@@ -353,7 +358,7 @@ export async function GET(request: NextRequest) {
         .bind(targetDate)
         .all<{
           id: string; opponent_team: string; match_date: string; team_id: string;
-          team_name: string; team_slug: string; match_format: string;
+          team_name: string; team_slug: string; match_format: string; captain_notes: string | null;
         }>()
     ).results;
 
@@ -411,6 +416,7 @@ export async function GET(request: NextRequest) {
               `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #b45309;">Hey ${m.name.split(" ")[0]},</h2>
                <p>The lineup for <strong>${match.opponent_team}</strong> on <strong>${dateStr}</strong> still has open starter spot(s): <strong>${vacantLabel}</strong>.</p>
                <p style="margin: 12px 0; font-size: 14px; color: #334155; white-space: pre-line;">${escapeEmailBody(sharedLine)}</p>
+               ${buildCaptainNoteHtml(match.captain_notes)}
                <p style="margin-top: 12px; font-size: 13px; color: #64748b;">If you can flip to <strong>Yes</strong> (or even Maybe) so we can slot you in, that would help us avoid defaulting a line.</p>
                <p style="margin-top: 16px; font-size: 14px; color: #475569;">&mdash; ${signoff}</p>`,
               {
@@ -443,7 +449,7 @@ export async function GET(request: NextRequest) {
   const tomorrow = new Date(now.getTime() + 86400000).toISOString().slice(0, 10);
   const tomorrowMatches = (await db.prepare(
     `SELECT lm.id, lm.opponent_team, lm.match_date, lm.match_time, lm.location,
-            lm.is_home, lm.notes, lm.status,
+            lm.is_home, lm.notes, lm.captain_notes, lm.status,
             t.id as team_id, t.name as team_name, t.slug as team_slug,
             l.id as lineup_id, l.status as lineup_status
      FROM league_matches lm
@@ -452,7 +458,7 @@ export async function GET(request: NextRequest) {
      WHERE lm.match_date = ? AND lm.status NOT IN ('completed','cancelled')`
   ).bind(tomorrow).all<{
     id: string; opponent_team: string; match_date: string; match_time: string | null;
-    location: string | null; is_home: number; notes: string | null; status: string;
+    location: string | null; is_home: number; notes: string | null; captain_notes: string | null; status: string;
     team_id: string; team_name: string; team_slug: string;
     lineup_id: string | null; lineup_status: string | null;
   }>()).results;
@@ -505,20 +511,10 @@ export async function GET(request: NextRequest) {
     ).bind(match.team_id, match.match_date).first<{ cnt: number }>())?.cnt ?? 0;
     const isFinalMatch = remainingAfterThis === 0;
 
-    const logisticsHtml = `
-      <table role="presentation" style="width: 100%; margin: 16px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0;">
-        <tr>
-          <td style="padding: 12px 16px; border-right: 1px solid #e2e8f0; width: 50%;">
-            <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">When</p>
-            <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${dateStr}${timeStr ? ` · ${timeStr}` : ""}</p>
-          </td>
-          <td style="padding: 12px 16px; width: 50%;">
-            <p style="margin: 0 0 2px 0; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px;">Where</p>
-            <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e293b;">${displayLeagueMatchLocation(match.location, match.is_home)}</p>
-          </td>
-        </tr>
-        ${match.notes ? `<tr><td colspan="2" style="padding: 8px 16px; border-top: 1px solid #e2e8f0;"><p style="margin: 0; font-size: 13px; color: #475569;">${match.notes}</p></td></tr>` : ""}
-      </table>`;
+    const logisticsHtml = buildLogisticsHtml({
+      dateStr, timeStr, location: match.location, isHome: match.is_home,
+      notes: match.notes, captainNotes: match.captain_notes,
+    });
 
     // Get lineup slots if lineup exists
     let lineupHtml = "";

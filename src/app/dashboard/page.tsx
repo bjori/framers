@@ -34,6 +34,7 @@ interface UpcomingLeagueMatch {
   location: string | null;
   is_home: number;
   notes: string | null;
+  captain_notes: string | null;
   rsvp_status: string | null;
   lineup_status: string | null;
   lineup_position: string | null;
@@ -117,7 +118,7 @@ export default async function DashboardPage() {
         .prepare(
           `SELECT lm.id as match_id, te.name as team_name, te.slug as team_slug,
                   lm.opponent_team, lm.match_date, lm.match_time,
-                  lm.location, lm.is_home, lm.notes,
+                  lm.location, lm.is_home, lm.notes, lm.captain_notes,
                   te.match_format as match_format,
                   a.status as rsvp_status,
                   CASE
@@ -294,19 +295,24 @@ export default async function DashboardPage() {
                 Score needed: vs {m.opponent_name} ({new Date(m.scheduled_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })})
               </Link>
             ))}
-            {owedFees.map((f) => (
-              <div key={f.fee_id} className="text-sm flex items-center gap-2">
-                <span>Owed: ${((f.amount_cents - f.paid_cents) / 100).toFixed(0)} for {f.label}</span>
-                <a
-                  href="https://account.venmo.com/u/bjori"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-bold bg-[#008CFF] text-white px-2 py-0.5 rounded hover:bg-[#0074D4] transition-colors"
-                >
-                  Pay via Venmo
-                </a>
-              </div>
-            ))}
+            {owedFees.map((f) => {
+              const owedDollars = ((f.amount_cents - f.paid_cents) / 100).toFixed(2);
+              const venmoNote = encodeURIComponent(`${f.label}`);
+              const venmoUrl = `https://venmo.com/framersapp?txn=pay&amount=${owedDollars}&note=${venmoNote}`;
+              return (
+                <div key={f.fee_id} className="text-sm flex items-center gap-2">
+                  <span>Owed: ${((f.amount_cents - f.paid_cents) / 100).toFixed(0)} for {f.label}</span>
+                  <a
+                    href={venmoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-bold bg-[#008CFF] text-white px-2 py-0.5 rounded hover:bg-[#0074D4] transition-colors"
+                  >
+                    Pay via Venmo
+                  </a>
+                </div>
+              );
+            })}
             {ustaNeeded.map((t) => (
               <div key={t.team_slug} className="text-sm">
                 <p className="font-semibold">USTA roster registration needed</p>
@@ -440,6 +446,11 @@ export default async function DashboardPage() {
                     {showTeamShortNote && (
                       <div className="px-3 py-2 text-xs border-b border-amber-200/80 dark:border-amber-800/50 bg-amber-50/90 dark:bg-amber-950/30 text-amber-950 dark:text-amber-100">
                         <strong>Team is shorthanded:</strong> {m.vacant_lines_label} still open — nudge anyone who can flip to Yes.
+                      </div>
+                    )}
+                    {m.captain_notes && (
+                      <div className="px-3 py-2 text-xs border-b border-amber-300/60 dark:border-amber-700/40 bg-amber-50/70 dark:bg-amber-950/20 text-amber-900 dark:text-amber-200">
+                        <strong>Captain&apos;s note:</strong> {m.captain_notes.length > 120 ? m.captain_notes.slice(0, 120) + "…" : m.captain_notes}
                       </div>
                     )}
                     <div
