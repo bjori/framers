@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { track } from "@/lib/analytics";
 import ical, { ICalCalendarMethod, ICalEventStatus } from "ical-generator";
+import {
+  loadLineSchedulesBatch,
+  groupLinesBySlot,
+  positionToLine,
+  describeLines,
+  type ScheduleBlock,
+} from "@/lib/line-schedule";
 
 const TZ = "America/Los_Angeles";
 
@@ -51,7 +58,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
   const teamMatches = (await db.prepare(
     `SELECT lm.id, lm.match_date, lm.match_time, lm.opponent_team, lm.location,
             lm.is_home, lm.status, lm.team_score, lm.notes, lm.captain_notes, lm.usta_url,
-            t.name as team_name, t.slug as team_slug,
+            t.name as team_name, t.slug as team_slug, t.match_format as match_format,
             a.status as rsvp_status,
             l.id as lineup_id, l.status as lineup_status
      FROM league_matches lm
@@ -64,9 +71,11 @@ export async function GET(_request: NextRequest, { params }: Params) {
     id: string; match_date: string; match_time: string | null; opponent_team: string;
     location: string | null; is_home: number; status: string; team_score: string | null;
     notes: string | null; captain_notes: string | null; usta_url: string | null;
-    team_name: string; team_slug: string; rsvp_status: string | null;
+    team_name: string; team_slug: string; match_format: string | null; rsvp_status: string | null;
     lineup_id: string | null; lineup_status: string | null;
   }>;
+
+  const scheduleOverridesByMatch = await loadLineSchedulesBatch(db, teamMatches.map((m) => m.id));
 
   // Batch-fetch all lineup slots for matches that have lineups
   const lineupIds = teamMatches.map((m) => m.lineup_id).filter(Boolean) as string[];
@@ -90,7 +99,6 @@ export async function GET(_request: NextRequest, { params }: Params) {
   }
 
   for (const m of teamMatches) {
-    const time = m.match_time || "18:00";
     const venue = m.is_home ? "Greenbrook (Home)" : `Away - ${m.opponent_team}`;
     const matchUrl = `https://framers.app/team/${m.team_slug}/match/${m.id}`;
 
@@ -99,59 +107,104 @@ export async function GET(_request: NextRequest, { params }: Params) {
     const lineupConfirmed = m.lineup_status === "confirmed" || m.lineup_status === "locked";
     const inLineup = mySlots.length > 0 && lineupConfirmed;
 
-    // Title: HOLD → Confirmed with position → Completed with score
-    let summary: string;
-    if (m.status === "completed") {
-      summary = `${m.team_name} vs ${m.opponent_team}${m.team_score ? ` (${m.team_score})` : ""}`;
-    } else if (inLineup) {
-      const pos = mySlots.map((s) => POSITION_LABELS[s.position] || s.position).join(", ");
-      summary = `${m.team_name} vs ${m.opponent_team} — ${pos}`;
-    } else if (lineupConfirmed) {
-      summary = `${m.team_name} vs ${m.opponent_team} (not in lineup)`;
+    let format: { singles: number; doubles: number } = { singles: 1, doubles: 3 };
+    try {
+      const parsed = JSON.parse(m.match_format || "{}");
+      if (parsed && typeof parsed.singles === "number" && typeof parsed.doubles === "number") {
+        format = { singles: parsed.singles, doubles: parsed.doubles };
+      } else if (parsed && Array.isArray(parsed.lines)) {
+        const singles = parsed.lines.filter((l: string) => l.startsWith("S")).length;
+        const doubles = parsed.lines.filter((l: string) => l.startsWith("D")).length;
+        if (singles || doubles) format = { singles, doubles };
+      }
+    } catch { /* fall back to default */ }
+
+    const overrides = scheduleOverridesByMatch.get(m.id) ?? [];
+    const blocks = groupLinesBySlot(
+      { match_date: m.match_date, match_time: m.match_time },
+      overrides,
+      format,
+    );
+
+    // Decide which blocks to emit for this player:
+    // - If in lineup → only the block(s) containing their line(s)
+    // - Otherwise → every block (they need to know what's happening each day)
+    let blocksForPlayer: ScheduleBlock[];
+    if (inLineup) {
+      const myLines = new Set(mySlots.map((s) => positionToLine(s.position)));
+      blocksForPlayer = blocks.filter((b) => b.lines.some((l) => myLines.has(l)));
+      if (blocksForPlayer.length === 0) blocksForPlayer = blocks; // safety
     } else {
-      summary = `HOLD: ${m.team_name} vs ${m.opponent_team}`;
+      blocksForPlayer = blocks;
     }
 
-    // Status: player in lineup or completed = CONFIRMED, cancelled = CANCELLED, else TENTATIVE
-    const status = m.status === "cancelled" ? ICalEventStatus.CANCELLED
-      : (m.status === "completed" || inLineup) ? ICalEventStatus.CONFIRMED
-      : ICalEventStatus.TENTATIVE;
+    const isSplit = blocks.length > 1;
 
-    // Build description
-    const descParts: string[] = [`USTA League Match — ${venue}`];
-    if (m.rsvp_status) descParts.push(`Your RSVP: ${m.rsvp_status}`);
-    if (m.team_score) descParts.push(`Result: ${m.team_score}`);
-    if (m.notes) descParts.push(`\nNotes: ${m.notes}`);
-    if (m.captain_notes) descParts.push(`\nCaptain's Note: ${m.captain_notes}`);
+    for (let idx = 0; idx < blocksForPlayer.length; idx++) {
+      const b = blocksForPlayer[idx];
+      const time = b.time || "18:00";
+      const linesLabel = describeLines(b.lines);
 
-    if (lineupConfirmed && slots.length > 0) {
-      descParts.push("\nLineup:");
-      const starters = slots.filter((s) => s.is_alternate === 0);
-      for (const s of starters) {
-        const label = POSITION_LABELS[s.position] || s.position;
-        const me = s.player_id === player.id ? " ← you" : "";
-        descParts.push(`  ${label} (${s.position}): ${s.player_name}${me}`);
+      let summary: string;
+      if (m.status === "completed") {
+        summary = `${m.team_name} vs ${m.opponent_team}${m.team_score ? ` (${m.team_score})` : ""}`;
+      } else if (inLineup) {
+        const pos = mySlots.map((s) => POSITION_LABELS[s.position] || s.position).join(", ");
+        summary = `${m.team_name} vs ${m.opponent_team} — ${pos}`;
+      } else if (lineupConfirmed) {
+        summary = `${m.team_name} vs ${m.opponent_team} (not in lineup)`;
+      } else {
+        summary = `HOLD: ${m.team_name} vs ${m.opponent_team}`;
       }
-      const alts = slots.filter((s) => s.is_alternate === 1);
-      if (alts.length > 0) {
-        descParts.push(`  Alternates: ${alts.map((s) => s.player_name).join(", ")}`);
+      if (isSplit) summary = `${summary} · ${linesLabel}`;
+
+      const status = m.status === "cancelled" ? ICalEventStatus.CANCELLED
+        : (m.status === "completed" || inLineup) ? ICalEventStatus.CONFIRMED
+        : ICalEventStatus.TENTATIVE;
+
+      const descParts: string[] = [`USTA League Match — ${venue}`];
+      if (isSplit) descParts.push(`Playing this day: ${linesLabel}`);
+      if (m.rsvp_status) descParts.push(`Your RSVP: ${m.rsvp_status}`);
+      if (m.team_score) descParts.push(`Result: ${m.team_score}`);
+      if (m.notes) descParts.push(`\nNotes: ${m.notes}`);
+      if (m.captain_notes) descParts.push(`\nCaptain's Note: ${m.captain_notes}`);
+
+      if (lineupConfirmed && slots.length > 0) {
+        descParts.push("\nLineup:");
+        const starters = slots.filter((s) => s.is_alternate === 0);
+        for (const s of starters) {
+          const label = POSITION_LABELS[s.position] || s.position;
+          const me = s.player_id === player.id ? " ← you" : "";
+          const slotLine = positionToLine(s.position);
+          const playsThisSlot = b.lines.includes(slotLine);
+          const dayMarker = isSplit && !playsThisSlot ? " (different day)" : "";
+          descParts.push(`  ${label} (${s.position}): ${s.player_name}${me}${dayMarker}`);
+        }
+        const alts = slots.filter((s) => s.is_alternate === 1);
+        if (alts.length > 0) {
+          descParts.push(`  Alternates: ${alts.map((s) => s.player_name).join(", ")}`);
+        }
       }
+
+      if (m.usta_url) descParts.push(`\nUSTA Scorecard: ${m.usta_url}`);
+      descParts.push(`\nView: ${matchUrl}`);
+
+      const eventId = isSplit
+        ? `league-${m.id}-${b.date}@framers.app`
+        : `league-${m.id}@framers.app`;
+
+      cal.createEvent({
+        id: eventId,
+        start: localTime(b.date, time),
+        timezone: TZ,
+        end: addHours(b.date, time, 3),
+        summary,
+        description: descParts.join("\n"),
+        location: m.location || venue,
+        status,
+        url: matchUrl,
+      });
     }
-
-    if (m.usta_url) descParts.push(`\nUSTA Scorecard: ${m.usta_url}`);
-    descParts.push(`\nView: ${matchUrl}`);
-
-    cal.createEvent({
-      id: `league-${m.id}@framers.app`,
-      start: localTime(m.match_date, time),
-      timezone: TZ,
-      end: addHours(m.match_date, time, 3),
-      summary,
-      description: descParts.join("\n"),
-      location: m.location || venue,
-      status,
-      url: matchUrl,
-    });
   }
 
   // Tournament matches

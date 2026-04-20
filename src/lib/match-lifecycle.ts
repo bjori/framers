@@ -66,6 +66,31 @@ export async function checkAutoTransitions(teamId: string): Promise<string[]> {
     ).bind(teamId).all<{ id: string; match_date: string; rsvp_deadline: string | null; status: string; is_home: number; notes: string | null }>()
   ).results;
 
+  // Split-schedule matches can have line overrides that push the "effective" date
+  // past (or before) match_date. Pull the min/max override date per match so we
+  // keep sending reminders through the last scheduled slot.
+  const matchIds = openMatches.map((m) => m.id);
+  const overrideExtents = new Map<string, { earliest: string | null; latest: string | null }>();
+  if (matchIds.length > 0) {
+    try {
+      const placeholders = matchIds.map(() => "?").join(",");
+      const { results } = await db
+        .prepare(
+          `SELECT match_id, MIN(scheduled_date) as earliest, MAX(scheduled_date) as latest
+           FROM match_line_schedules
+           WHERE match_id IN (${placeholders}) AND scheduled_date IS NOT NULL
+           GROUP BY match_id`,
+        )
+        .bind(...matchIds)
+        .all<{ match_id: string; earliest: string | null; latest: string | null }>();
+      for (const r of results) {
+        overrideExtents.set(r.match_id, { earliest: r.earliest, latest: r.latest });
+      }
+    } catch {
+      // Table may not exist yet.
+    }
+  }
+
   for (const match of openMatches) {
     if (match.rsvp_deadline && new Date(match.rsvp_deadline) < now) {
       await transitionMatch(match.id, "rsvp_closed");
@@ -73,8 +98,12 @@ export async function checkAutoTransitions(teamId: string): Promise<string[]> {
       continue;
     }
 
-    // Only send "We need you!" / transition to needs_players for matches within 2 weeks
-    const matchInWindow = match.match_date >= today && match.match_date <= twoWeeksOut;
+    const extent = overrideExtents.get(match.id);
+    const earliestDate = extent?.earliest && extent.earliest < match.match_date ? extent.earliest : match.match_date;
+    const latestDate = extent?.latest && extent.latest > match.match_date ? extent.latest : match.match_date;
+
+    // Window = any slot is today-through-two-weeks and the match is not entirely in the past.
+    const matchInWindow = latestDate >= today && earliestDate <= twoWeeksOut;
     // Skip unconfirmed away matches (no location/notes yet)
     const isAwayUnconfirmed = match.is_home === 0 && (!match.notes || match.notes.trim() === "");
 

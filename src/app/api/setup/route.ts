@@ -31,6 +31,16 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS tr_players (id TEXT PRIMARY KEY, player_name TEXT NOT NULL, team_name TEXT, ntrp TEXT, tr_rating REAL, tr_dynamic_rating REAL, season_record TEXT, local_singles TEXT, local_doubles TEXT, local_record TEXT, current_streak TEXT, longest_win_streak INTEGER, longest_lose_streak INTEGER, avg_opponent_rating REAL, win_pct REAL, yearly_records TEXT, team_memberships TEXT, fetched_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')), UNIQUE(team_name, player_name))`,
   `CREATE TABLE IF NOT EXISTS tr_match_history (id TEXT PRIMARY KEY, player_name TEXT NOT NULL, match_date TEXT, league_type TEXT, team_name TEXT, court_position TEXT, partner_name TEXT, opponent_names TEXT, result TEXT, score TEXT, fetched_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')))`,
   `CREATE INDEX IF NOT EXISTS idx_tr_match_history_player ON tr_match_history(player_name)`,
+  // Per-line schedule overrides for league matches (doubles/singles on different days or
+  // staggered start times on the same day). NULL values inherit from league_matches.
+  `CREATE TABLE IF NOT EXISTS match_line_schedules (
+     match_id TEXT NOT NULL REFERENCES league_matches(id),
+     line TEXT NOT NULL,
+     scheduled_date TEXT,
+     scheduled_time TEXT,
+     PRIMARY KEY (match_id, line)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_match_line_schedules_date ON match_line_schedules(scheduled_date)`,
 ];
 
 const MIGRATIONS = [

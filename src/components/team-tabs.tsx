@@ -19,6 +19,7 @@ interface LeagueMatch {
   team_score: string | null;
   status: string;
   notes: string | null;
+  schedule_blocks?: { date: string; time: string | null; lines: string[] }[];
 }
 
 interface TeamMember {

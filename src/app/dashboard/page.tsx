@@ -7,6 +7,12 @@ import DashboardPracticeCard from "@/components/dashboard-practice-card";
 import { filterPracticeSessionsStillOnSchedule } from "@/lib/practice-schedule";
 import { vacantLinesLabelForLeagueMatch } from "@/lib/lineup-vacancy";
 import { personalShorthandedPlea } from "@/lib/league-shorthanded-copy";
+import {
+  loadLineSchedulesBatch,
+  groupLinesBySlot,
+  type ScheduleBlock,
+  type MatchFormat,
+} from "@/lib/line-schedule";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +47,7 @@ interface UpcomingLeagueMatch {
   lineup_acknowledged: number | null;
   match_format: string;
   vacant_lines_label: string | null;
+  schedule_blocks: ScheduleBlock[];
 }
 
 interface UnscoredMatch {
@@ -145,10 +152,30 @@ export default async function DashboardPage() {
         >()
     ).results;
 
+    const scheduleOverridesByMatch = await loadLineSchedulesBatch(db, leagueRows.map((r) => r.match_id));
+    const parseMatchFormat = (raw: string | null): MatchFormat => {
+      try {
+        const parsed = JSON.parse(raw || "{}");
+        if (parsed && typeof parsed.singles === "number" && typeof parsed.doubles === "number") {
+          return { singles: parsed.singles, doubles: parsed.doubles };
+        }
+        if (parsed && Array.isArray(parsed.lines)) {
+          const singles = parsed.lines.filter((l: string) => l.startsWith("S")).length;
+          const doubles = parsed.lines.filter((l: string) => l.startsWith("D")).length;
+          if (singles || doubles) return { singles, doubles };
+        }
+      } catch { /* fall through */ }
+      return { singles: 1, doubles: 3 };
+    };
     leagueMatches = await Promise.all(
       leagueRows.map(async (m) => ({
         ...m,
         vacant_lines_label: await vacantLinesLabelForLeagueMatch(db, m.match_id, m.match_format),
+        schedule_blocks: groupLinesBySlot(
+          { match_date: m.match_date, match_time: m.match_time },
+          scheduleOverridesByMatch.get(m.match_id) ?? [],
+          parseMatchFormat(m.match_format),
+        ),
       })),
     );
 
@@ -235,7 +262,14 @@ export default async function DashboardPage() {
       allEvents.push({ kind: "tournament", date: m.scheduled_date, data: m });
     }
     for (const m of leagueMatches) {
-      allEvents.push({ kind: "league", date: m.match_date, data: m });
+      const distinctDates = new Set(m.schedule_blocks.map((b) => b.date));
+      if (distinctDates.size > 1) {
+        for (const d of distinctDates) {
+          allEvents.push({ kind: "league", date: d, data: m });
+        }
+      } else {
+        allEvents.push({ kind: "league", date: m.match_date, data: m });
+      }
     }
 
     allEvents.sort((a, b) => a.date.localeCompare(b.date));
@@ -415,6 +449,20 @@ export default async function DashboardPage() {
                 const confirmed = !!(m.notes && m.notes.trim());
                 const faded = m.rsvp_status === "no" && !m.lineup_status;
                 const needsRsvp = confirmed && !m.rsvp_status;
+                const slotBlocks = m.schedule_blocks.filter((b) => b.date === ev.date);
+                const slotBlock = slotBlocks[0];
+                const slotTime = slotBlock?.time ?? m.match_time;
+                const slotLinesLabel = slotBlocks.length > 0
+                  ? [...new Set(slotBlocks.flatMap((b) => b.lines))]
+                      .sort((a, b) => {
+                        const aD = a.startsWith("D") ? 0 : 1;
+                        const bD = b.startsWith("D") ? 0 : 1;
+                        if (aD !== bD) return aD - bD;
+                        return a.localeCompare(b);
+                      })
+                      .join("/")
+                  : "";
+                const isSplit = new Set(m.schedule_blocks.map((b) => b.date)).size > 1;
                 const showPleaOnRow =
                   !!m.vacant_lines_label &&
                   (m.rsvp_status === "no" || m.rsvp_status === "maybe") &&
@@ -506,11 +554,14 @@ export default async function DashboardPage() {
                     {!needsRsvp && (
                       <div className={`text-right pr-3 shrink-0 ${!confirmed ? "opacity-75" : ""}`}>
                         <p className="text-xs font-semibold">
-                          {new Date(m.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                          {new Date(ev.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                          {isSplit && slotLinesLabel && (
+                            <span className="ml-1 text-[9px] font-mono font-normal text-warning">{slotLinesLabel}</span>
+                          )}
                         </p>
                         <p className="text-[11px] text-slate-400">
                           {confirmed
-                            ? (m.match_time ? fmtTime(m.match_time) : "") + (m.location ? ` · ${m.location}` : "")
+                            ? (slotTime ? fmtTime(slotTime) : "") + (m.location ? ` · ${m.location}` : "")
                             : "Date TBD"}
                         </p>
                       </div>
@@ -519,10 +570,13 @@ export default async function DashboardPage() {
                       <>
                         <div className="text-right pr-2 shrink-0">
                           <p className="text-xs font-semibold">
-                            {new Date(m.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                            {new Date(ev.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                            {isSplit && slotLinesLabel && (
+                              <span className="ml-1 text-[9px] font-mono font-normal text-warning">{slotLinesLabel}</span>
+                            )}
                           </p>
                           <p className="text-[11px] text-slate-400">
-                            {m.match_time ? fmtTime(m.match_time) : ""}{m.location ? ` · ${m.location}` : ""}
+                            {slotTime ? fmtTime(slotTime) : ""}{m.location ? ` · ${m.location}` : ""}
                           </p>
                         </div>
                         <DashboardRsvp slug={m.team_slug} matchId={m.match_id} />

@@ -13,6 +13,14 @@ import { Breadcrumb } from "@/components/breadcrumb";
 import { displayLeagueMatchLocation } from "@/lib/league-venues";
 import { vacantLinesLabelForLeagueMatch } from "@/lib/lineup-vacancy";
 import { expectedStarterPositions } from "@/lib/lineup-positions";
+import {
+  loadLineSchedules,
+  groupLinesBySlot,
+  isSplitSchedule,
+  describeLines,
+  formatSlotDateLong,
+  formatSlotTime,
+} from "@/lib/line-schedule";
 
 interface RsvpResponse {
   player_id: string;
@@ -200,6 +208,18 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
 
   const whereLabel = displayLeagueMatchLocation(match.location, match.is_home);
 
+  const lineOverrides = await loadLineSchedules(db, id);
+  const scheduleBlocks = groupLinesBySlot(
+    { match_date: match.match_date, match_time: match.match_time },
+    lineOverrides,
+    format,
+  );
+  const splitScheduled = isSplitSchedule(
+    { match_date: match.match_date, match_time: match.match_time },
+    lineOverrides,
+    format,
+  );
+
   return (
     <div className="space-y-6">
       <div>
@@ -214,6 +234,11 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
         </div>
         <p className="text-sm text-slate-500 mt-1">
           Round {match.round_number} · {dateStr}
+          {splitScheduled && (
+            <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-warning/10 text-warning">
+              Split schedule
+            </span>
+          )}
         </p>
         <p className="text-xs text-slate-400 mt-0.5">Format: {formatLabel}</p>
         {isPast && match.team_score && (
@@ -243,9 +268,23 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
         <div className="grid grid-cols-2 gap-3">
           <div>
             <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">When</p>
-            <p className="text-sm font-medium">
-              {match.match_time ? formatTime(match.match_time) : <span className="text-slate-400">TBD</span>}
-            </p>
+            {splitScheduled ? (
+              <div className="space-y-1">
+                {scheduleBlocks.map((b) => (
+                  <div key={`${b.date}|${b.time ?? ""}`}>
+                    <p className="text-sm font-medium leading-tight">
+                      {formatSlotDateLong(b.date)}
+                      {b.time ? ` · ${formatSlotTime(b.time)}` : ""}
+                    </p>
+                    <p className="text-[11px] text-slate-500">{describeLines(b.lines)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm font-medium">
+                {match.match_time ? formatTime(match.match_time) : <span className="text-slate-400">TBD</span>}
+              </p>
+            )}
           </div>
           <div>
             <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Where</p>
@@ -277,10 +316,13 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
             <MatchDetailsEditor
               slug={slug}
               matchId={id}
+              currentDate={match.match_date}
               currentTime={match.match_time}
               currentLocation={whereLabel === "TBD" ? "" : whereLabel}
               currentNotes={match.notes}
               currentCaptainNotes={match.captain_notes}
+              matchFormat={format}
+              currentLineSchedules={lineOverrides}
             />
           </div>
         )}

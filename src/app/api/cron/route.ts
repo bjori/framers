@@ -12,6 +12,14 @@ import { displayLeagueMatchLocation } from "@/lib/league-venues";
 import { buildLogisticsHtml, buildCaptainNoteHtml } from "@/lib/email-logistics";
 import { neededStarterCount, vacantLinesLabelForLeagueMatch } from "@/lib/lineup-vacancy";
 import { generateRsvpNeedMoreYesPitch, generateShorthandedLineupPitch } from "@/lib/league-shorthanded-nudge-email";
+import {
+  loadLineSchedules,
+  groupLinesBySlot,
+  positionToLine,
+  describeLines,
+  type MatchFormat,
+  type LineId,
+} from "@/lib/line-schedule";
 
 const POSITION_LABELS: Record<string, string> = {
   D1A: "Doubles 1", D1B: "Doubles 1", D2A: "Doubles 2", D2B: "Doubles 2",
@@ -445,41 +453,93 @@ export async function GET(request: NextRequest) {
     console.error("[cron RSVP ladder]", rsvpLadderErr);
   }
 
-  // 3. Pre-match emails: good luck + unconfirmed player nudges (matches tomorrow)
+  // 3. Pre-match emails: good luck + unconfirmed player nudges (for matches whose
+  // match_date OR any line-schedule override lands on tomorrow)
   const tomorrow = new Date(now.getTime() + 86400000).toISOString().slice(0, 10);
-  const tomorrowMatches = (await db.prepare(
+  const tomorrowByDefault = (await db.prepare(
+    `SELECT lm.id FROM league_matches lm
+     WHERE lm.match_date = ? AND lm.status NOT IN ('completed','cancelled')`
+  ).bind(tomorrow).all<{ id: string }>()).results.map((r) => r.id);
+
+  let tomorrowByOverride: string[] = [];
+  try {
+    tomorrowByOverride = (await db.prepare(
+      `SELECT DISTINCT mls.match_id as id FROM match_line_schedules mls
+       JOIN league_matches lm ON lm.id = mls.match_id
+       WHERE mls.scheduled_date = ? AND lm.status NOT IN ('completed','cancelled')`
+    ).bind(tomorrow).all<{ id: string }>()).results.map((r) => r.id);
+  } catch {
+    // Table may not exist yet.
+  }
+
+  const tomorrowMatchIds = [...new Set([...tomorrowByDefault, ...tomorrowByOverride])];
+  const tomorrowMatches = tomorrowMatchIds.length === 0 ? [] : (await db.prepare(
     `SELECT lm.id, lm.opponent_team, lm.match_date, lm.match_time, lm.location,
             lm.is_home, lm.notes, lm.captain_notes, lm.status,
-            t.id as team_id, t.name as team_name, t.slug as team_slug,
+            t.id as team_id, t.name as team_name, t.slug as team_slug, t.match_format as match_format,
             l.id as lineup_id, l.status as lineup_status
      FROM league_matches lm
      JOIN teams t ON t.id = lm.team_id
      LEFT JOIN lineups l ON l.match_id = lm.id
-     WHERE lm.match_date = ? AND lm.status NOT IN ('completed','cancelled')`
-  ).bind(tomorrow).all<{
+     WHERE lm.id IN (${tomorrowMatchIds.map(() => "?").join(",")})`
+  ).bind(...tomorrowMatchIds).all<{
     id: string; opponent_team: string; match_date: string; match_time: string | null;
     location: string | null; is_home: number; notes: string | null; captain_notes: string | null; status: string;
-    team_id: string; team_name: string; team_slug: string;
+    team_id: string; team_name: string; team_slug: string; match_format: string | null;
     lineup_id: string | null; lineup_status: string | null;
   }>()).results;
 
+  const parseMatchFormat = (raw: string | null): MatchFormat => {
+    try {
+      const parsed = JSON.parse(raw || "{}");
+      if (parsed && typeof parsed.singles === "number" && typeof parsed.doubles === "number") {
+        return { singles: parsed.singles, doubles: parsed.doubles };
+      }
+      if (parsed && Array.isArray(parsed.lines)) {
+        const singles = parsed.lines.filter((l: string) => l.startsWith("S")).length;
+        const doubles = parsed.lines.filter((l: string) => l.startsWith("D")).length;
+        if (singles || doubles) return { singles, doubles };
+      }
+    } catch { /* fall through */ }
+    return { singles: 1, doubles: 3 };
+  };
+
   for (const match of tomorrowMatches) {
+    // Dedup pre-match email per (match_id, slot_date). This lets us send one
+    // hype email per slot of a split-scheduled match.
+    const detailKey = `${match.id}|${tomorrow}`;
     const alreadySent = (await db.prepare(
-      "SELECT COUNT(*) as cnt FROM app_events WHERE event = 'prematch_email' AND detail = ?"
-    ).bind(match.id).first<{ cnt: number }>())?.cnt ?? 0;
+      "SELECT COUNT(*) as cnt FROM app_events WHERE event = 'prematch_email' AND detail IN (?, ?)",
+    ).bind(match.id, detailKey).first<{ cnt: number }>())?.cnt ?? 0;
     if (alreadySent > 0) continue;
 
-    const dateStr = new Date(match.match_date + "T12:00:00").toLocaleDateString("en-US", {
+    const format = parseMatchFormat(match.match_format);
+    const overrides = await loadLineSchedules(db, match.id);
+    const blocks = groupLinesBySlot(
+      { match_date: match.match_date, match_time: match.match_time },
+      overrides,
+      format,
+    );
+    const tomorrowBlocks = blocks.filter((b) => b.date === tomorrow);
+    const linesTomorrow: LineId[] = tomorrowBlocks.flatMap((b) => b.lines);
+    const isSplitMatch = blocks.length > 1;
+    const linesTomorrowLabel = describeLines(linesTomorrow);
+    const effectiveTime = tomorrowBlocks[0]?.time ?? match.match_time;
+
+    const dateStr = new Date(tomorrow + "T12:00:00").toLocaleDateString("en-US", {
       weekday: "long", month: "long", day: "numeric",
     });
     let timeStr = "";
-    if (match.match_time) {
-      const [h, m] = match.match_time.split(":").map(Number);
+    if (effectiveTime) {
+      const [h, m] = effectiveTime.split(":").map(Number);
       timeStr = `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
     }
     const matchUrl = `https://framers.app/team/${match.team_slug}/match/${match.id}`;
     const sender = listSender(match.team_slug, match.team_name);
     const lineupConfirmed = match.lineup_status === "confirmed" || match.lineup_status === "locked";
+    const splitNoteHtml = isSplitMatch
+      ? `<p style="margin: 8px 0; padding: 10px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; color: #92400e;"><strong>Tomorrow&rsquo;s lines:</strong> ${linesTomorrowLabel}. Remaining lines of this match are scheduled on other days — check the match page for the full schedule.</p>`
+      : "";
 
     // Get our season record
     const seasonRecord = await db.prepare(
@@ -516,6 +576,9 @@ export async function GET(request: NextRequest) {
       notes: match.notes, captainNotes: match.captain_notes,
     });
 
+    const tomorrowLineSet = new Set(linesTomorrow.map((l) => l.toUpperCase()));
+    const playsTomorrowPos = (position: string) => tomorrowLineSet.has(positionToLine(position));
+
     // Get lineup slots if lineup exists
     let lineupHtml = "";
     let unconfirmedPlayers: { email: string; name: string; position: string }[] = [];
@@ -530,19 +593,25 @@ export async function GET(request: NextRequest) {
       }>()).results;
 
       const starters = slots.filter((s) => s.is_alternate === 0);
+      // Only nag unconfirmed players whose line is actually scheduled tomorrow.
       unconfirmedPlayers = starters
-        .filter((s) => s.acknowledged !== 1)
+        .filter((s) => s.acknowledged !== 1 && playsTomorrowPos(s.position))
         .map((s) => ({ email: s.email, name: s.name, position: s.position }));
 
-      const lineupRows = starters.map((s) => {
-        const label = POSITION_LABELS[s.position] || s.position;
-        const ackIcon = s.acknowledged === 1 ? ' <span style="color: #16a34a;">&#10003;</span>' : ' <span style="color: #f59e0b;">?</span>';
-        return `<tr><td style="padding: 4px 10px; font-weight: 600; color: #475569;">${label}</td><td style="padding: 4px 10px; color: #1e293b;">${s.name}${ackIcon}</td></tr>`;
-      }).join("");
+      const lineupRows = starters
+        .filter((s) => !isSplitMatch || playsTomorrowPos(s.position))
+        .map((s) => {
+          const label = POSITION_LABELS[s.position] || s.position;
+          const ackIcon = s.acknowledged === 1 ? ' <span style="color: #16a34a;">&#10003;</span>' : ' <span style="color: #f59e0b;">?</span>';
+          return `<tr><td style="padding: 4px 10px; font-weight: 600; color: #475569;">${label}</td><td style="padding: 4px 10px; color: #1e293b;">${s.name}${ackIcon}</td></tr>`;
+        }).join("");
 
-      lineupHtml = `
-        <h3 style="font-size: 14px; color: #64748b; margin: 16px 0 6px 0;">Lineup</h3>
-        <table role="presentation" style="width: 100%; font-size: 13px;">${lineupRows}</table>`;
+      const lineupHeading = isSplitMatch ? `Lineup — ${linesTomorrowLabel}` : "Lineup";
+      lineupHtml = lineupRows
+        ? `
+        <h3 style="font-size: 14px; color: #64748b; margin: 16px 0 6px 0;">${lineupHeading}</h3>
+        <table role="presentation" style="width: 100%; font-size: 13px;">${lineupRows}</table>`
+        : "";
     }
 
     const teamMembers = (await db.prepare(
@@ -595,9 +664,11 @@ export async function GET(request: NextRequest) {
           `SELECT ls.position, p.name FROM lineup_slots ls
            JOIN players p ON p.id = ls.player_id
            WHERE ls.lineup_id = ? AND ls.is_alternate = 0 ORDER BY ls.position`
-        ).bind(match.lineup_id).all<{ position: string; name: string }>()).results.map((s) => ({
-          name: s.name, position: POSITION_LABELS[s.position] || s.position,
-        }))
+        ).bind(match.lineup_id).all<{ position: string; name: string }>()).results
+          .filter((s) => !isSplitMatch || playsTomorrowPos(s.position))
+          .map((s) => ({
+            name: s.name, position: POSITION_LABELS[s.position] || s.position,
+          }))
       : [];
 
     // Load scouting data for pre-match commentary
@@ -652,13 +723,18 @@ export async function GET(request: NextRequest) {
     // Send good luck email to everyone
     const prematchSignoff = await captainSignoff(match.team_id);
     const subjectPrefix = isFinalMatch ? "Season finale" : "Good luck tomorrow";
+    const splitSubjectSuffix = isSplitMatch ? ` (${linesTomorrowLabel})` : "";
+    const headlineOpen = isSplitMatch
+      ? `${linesTomorrowLabel} tomorrow!`
+      : (isFinalMatch ? "Season finale tomorrow!" : "Match day tomorrow!");
     const goodLuckBatch = teamMembers.map((m) => ({
       to: m.email,
-      subject: `${subjectPrefix}: ${match.team_name} vs ${match.opponent_team}`,
+      subject: `${subjectPrefix}: ${match.team_name} vs ${match.opponent_team}${splitSubjectSuffix}`,
       ...sender,
       html: emailTemplate(
-        `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">${isFinalMatch ? "Season finale tomorrow!" : "Match day tomorrow!"}</h2>
+        `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">${headlineOpen}</h2>
          <p><strong>${match.team_name}</strong> takes on <strong>${match.opponent_team}</strong> ${match.is_home ? "at home" : "away"}.</p>
+         ${splitNoteHtml}
          ${logisticsHtml}
          ${seasonStr ? `<p style="font-size: 14px; color: #1e293b;">${seasonStr}</p>` : ""}
          ${historyHtml}
@@ -684,8 +760,8 @@ export async function GET(request: NextRequest) {
     }
 
     await db.prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
-      .bind("prematch_email", match.id, now.toISOString()).run();
-    log.push(`[Pre-match] ${match.opponent_team} tomorrow: sent to ${teamMembers.length} members`);
+      .bind("prematch_email", detailKey, now.toISOString()).run();
+    log.push(`[Pre-match] ${match.opponent_team} ${tomorrow}${isSplitMatch ? ` (${linesTomorrowLabel})` : ""}: sent to ${teamMembers.length} members`);
   }
 
   // 4. Tournament score reminders: matches past scheduled date without a score

@@ -3,6 +3,12 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
+interface ScheduleBlock {
+  date: string;
+  time: string | null;
+  lines: string[];
+}
+
 interface LeagueMatch {
   id: string;
   round_number: number;
@@ -15,6 +21,7 @@ interface LeagueMatch {
   team_score: string | null;
   status: string;
   notes: string | null;
+  schedule_blocks?: ScheduleBlock[];
 }
 
 interface RsvpStatus {
@@ -29,6 +36,22 @@ function fmtTime(t: string) {
   const [h, m] = t.split(":").map(Number);
   const ampm = h >= 12 ? "PM" : "AM";
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+function fmtDateShort(dateStr: string) {
+  return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric",
+  });
+}
+
+function summarizeLines(lines: string[]): string {
+  const sorted = [...lines].sort((a, b) => {
+    const aD = a.startsWith("D") ? 0 : 1;
+    const bD = b.startsWith("D") ? 0 : 1;
+    if (aD !== bD) return aD - bD;
+    return a.localeCompare(b);
+  });
+  return sorted.join("/");
 }
 
 export function TeamSchedule({ matches, isReadOnly, slug, emptyMessage }: { matches: LeagueMatch[]; isReadOnly: boolean; slug: string; emptyMessage?: string }) {
@@ -111,6 +134,8 @@ export function TeamSchedule({ matches, isReadOnly, slug, emptyMessage }: { matc
           const won = m.team_result === "Won";
           const current = myRsvp[m.id];
           const cnt = counts[m.id];
+          const blocks = m.schedule_blocks ?? [];
+          const isSplit = new Set(blocks.map((b) => b.date)).size > 1;
 
           return (
             <div
@@ -135,16 +160,34 @@ export function TeamSchedule({ matches, isReadOnly, slug, emptyMessage }: { matc
                           Date TBD
                         </span>
                       )}
+                      {isSplit && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-warning/10 text-warning" title="Lines split across multiple dates">
+                          Split
+                        </span>
+                      )}
                       <span className={`font-semibold text-sm truncate ${!confirmed ? "text-slate-500 dark:text-slate-400" : ""}`}>
                         {m.opponent_team}
                       </span>
                     </div>
-                    <p className={`text-xs mt-1 ${confirmed ? "text-slate-500" : "text-slate-400 dark:text-slate-500"}`}>
-                      {new Date(m.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                      {m.match_time ? ` · ${fmtTime(m.match_time)}` : ""}
-                      {m.location ? ` · ${m.location}` : ""}
-                      {!confirmed && " · Opponent has not posted time yet"}
-                    </p>
+                    {isSplit ? (
+                      <div className={`text-xs mt-1 space-y-0.5 ${confirmed ? "text-slate-500" : "text-slate-400 dark:text-slate-500"}`}>
+                        {blocks.map((b) => (
+                          <p key={`${b.date}|${b.time ?? ""}`}>
+                            <span className="font-semibold">{fmtDateShort(b.date)}</span>
+                            {b.time ? ` · ${fmtTime(b.time)}` : ""}
+                            <span className="ml-1 text-[10px] font-mono text-slate-400">{summarizeLines(b.lines)}</span>
+                          </p>
+                        ))}
+                        {m.location && <p>{m.location}</p>}
+                      </div>
+                    ) : (
+                      <p className={`text-xs mt-1 ${confirmed ? "text-slate-500" : "text-slate-400 dark:text-slate-500"}`}>
+                        {new Date(m.match_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                        {m.match_time ? ` · ${fmtTime(m.match_time)}` : ""}
+                        {m.location ? ` · ${m.location}` : ""}
+                        {!confirmed && " · Opponent has not posted time yet"}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
                     {isPast && m.team_score && (

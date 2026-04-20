@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { track } from "@/lib/analytics";
+import { replaceLineSchedules, loadLineSchedules } from "@/lib/line-schedule";
+
+interface LineScheduleInput {
+  line: string;
+  scheduled_date?: string | null;
+  scheduled_time?: string | null;
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -28,18 +35,86 @@ export async function PATCH(
   }
 
   const body = (await request.json()) as {
+    match_date?: string | null;
     match_time?: string | null;
     location?: string | null;
     notes?: string | null;
     captain_notes?: string | null;
+    line_schedules?: LineScheduleInput[];
   };
 
-  await db
-    .prepare(
-      "UPDATE league_matches SET match_time = ?, location = ?, notes = ?, captain_notes = ? WHERE id = ? AND team_id = ?"
-    )
-    .bind(body.match_time ?? null, body.location ?? null, body.notes ?? null, body.captain_notes ?? null, id, team.id)
-    .run();
+  // Capture old values so we can log meaningful changelog entries
+  const existing = await db
+    .prepare("SELECT match_date, match_time FROM league_matches WHERE id = ? AND team_id = ?")
+    .bind(id, team.id)
+    .first<{ match_date: string; match_time: string | null }>();
+
+  if (!existing) return NextResponse.json({ error: "Match not found" }, { status: 404 });
+
+  const nextMatchDate = body.match_date || existing.match_date;
+  const nextMatchTime = body.match_time ?? null;
+
+  if (nextMatchDate !== existing.match_date) {
+    await db
+      .prepare(
+        "UPDATE league_matches SET match_date = ?, match_time = ?, location = ?, notes = ?, captain_notes = ? WHERE id = ? AND team_id = ?",
+      )
+      .bind(nextMatchDate, nextMatchTime, body.location ?? null, body.notes ?? null, body.captain_notes ?? null, id, team.id)
+      .run();
+
+    await db
+      .prepare(
+        `INSERT INTO match_changelog (id, match_type, match_id, changed_by_player_id, changed_by_name, field_name, old_value, new_value)
+         VALUES (?, 'league', ?, ?, ?, 'match_date', ?, ?)`,
+      )
+      .bind(crypto.randomUUID(), id, session.player_id, session.name, existing.match_date, nextMatchDate)
+      .run();
+  } else {
+    await db
+      .prepare(
+        "UPDATE league_matches SET match_time = ?, location = ?, notes = ?, captain_notes = ? WHERE id = ? AND team_id = ?",
+      )
+      .bind(nextMatchTime, body.location ?? null, body.notes ?? null, body.captain_notes ?? null, id, team.id)
+      .run();
+  }
+
+  if (Array.isArray(body.line_schedules)) {
+    const oldOverrides = await loadLineSchedules(db, id);
+    await replaceLineSchedules(
+      db,
+      id,
+      { match_date: nextMatchDate, match_time: nextMatchTime },
+      body.line_schedules.map((o) => ({
+        line: o.line,
+        scheduled_date: o.scheduled_date ?? null,
+        scheduled_time: o.scheduled_time ?? null,
+      })),
+    );
+    const newOverrides = await loadLineSchedules(db, id);
+    const summarize = (rows: typeof oldOverrides) =>
+      rows
+        .map((r) => `${r.line}=${r.scheduled_date ?? "-"}@${r.scheduled_time ?? "-"}`)
+        .sort()
+        .join(", ") || "(none)";
+    const oldSummary = summarize(oldOverrides);
+    const newSummary = summarize(newOverrides);
+    if (oldSummary !== newSummary) {
+      await db
+        .prepare(
+          `INSERT INTO match_changelog (id, match_type, match_id, changed_by_player_id, changed_by_name, field_name, old_value, new_value)
+           VALUES (?, 'league', ?, ?, ?, 'line_schedules', ?, ?)`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          id,
+          session.player_id,
+          session.name,
+          oldSummary,
+          newSummary,
+        )
+        .run();
+    }
+  }
 
   track("match_details_edited", { playerId: session.player_id, detail: `match:${id}` });
   return NextResponse.json({ ok: true });

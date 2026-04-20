@@ -47,12 +47,24 @@ export default async function TeamPage({ params }: { params: Promise<{ slug: str
 
   if (!team) notFound();
 
-  const matches = (
+  const rawMatches = (
     await db
       .prepare("SELECT * FROM league_matches WHERE team_id = ? ORDER BY match_date ASC")
       .bind(team.id)
       .all<LeagueMatch>()
   ).results;
+
+  const { loadLineSchedulesBatch, groupLinesBySlot } = await import("@/lib/line-schedule");
+  const scheduleOverridesByMatch = await loadLineSchedulesBatch(db, rawMatches.map((m) => m.id));
+  const starterFormatForMatches = starterFormatFromTeamJson(team.match_format || "{}");
+  const matches = rawMatches.map((m) => {
+    const blocks = groupLinesBySlot(
+      { match_date: m.match_date, match_time: m.match_time },
+      scheduleOverridesByMatch.get(m.id) ?? [],
+      starterFormatForMatches,
+    );
+    return { ...m, schedule_blocks: blocks };
+  });
 
   const roster = (
     await db

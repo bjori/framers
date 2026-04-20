@@ -1,5 +1,6 @@
 import { GREENBROOK_HOME_VENUE } from "@/lib/league-venues";
 import { fetchUstaOpponentVenue } from "@/lib/usta-venues";
+import { parseUstaNotesToLineTimes } from "@/lib/line-schedule";
 
 const USTA_BASE = "https://leagues.ustanorcal.com";
 
@@ -243,6 +244,41 @@ export async function syncUstaTeam(db: D1Database, teamSlug: string): Promise<Sy
     // Update notes whenever USTA has posted info (confirms match); match_time only when parseable
     await db.prepare("UPDATE league_matches SET match_time = COALESCE(?, match_time), notes = ? WHERE team_id = ? AND match_date = ?")
       .bind(matchTime, tu.rawTime, team.id, tu.date).run();
+
+    // Best-effort: if the notes field mentions staggered per-line times (e.g.
+    // "D1 & S1: 6:30 PM, D2 & D3 & S2: 8:00 PM"), persist those as line-level
+    // time overrides so calendars, reminders, and hype emails use the right
+    // times. Only do this when no captain-set overrides exist for the match —
+    // captains always win.
+    const lineTimes = parseUstaNotesToLineTimes(tu.rawTime);
+    if (lineTimes.length > 0) {
+      const matchRow = await db
+        .prepare("SELECT id FROM league_matches WHERE team_id = ? AND match_date = ?")
+        .bind(team.id, tu.date)
+        .first<{ id: string }>();
+      if (matchRow) {
+        try {
+          const existing = (
+            await db
+              .prepare("SELECT COUNT(*) as cnt FROM match_line_schedules WHERE match_id = ?")
+              .bind(matchRow.id)
+              .first<{ cnt: number }>()
+          )?.cnt ?? 0;
+          if (existing === 0) {
+            const stmts = lineTimes.map((o) =>
+              db
+                .prepare(
+                  "INSERT INTO match_line_schedules (match_id, line, scheduled_date, scheduled_time) VALUES (?, ?, NULL, ?)",
+                )
+                .bind(matchRow.id, o.line, o.scheduled_time),
+            );
+            if (stmts.length > 0) await db.batch(stmts);
+          }
+        } catch {
+          // Table may not exist yet (pre-setup); skip silently.
+        }
+      }
+    }
   }
 
   // USTA schedule HTML does not include our home court address; all Greenbrook home league matches are here.
