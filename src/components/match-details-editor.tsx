@@ -122,29 +122,37 @@ export function MatchDetailsEditor({
         })
       : [];
 
-    const res = await fetch(`/api/team/${slug}/match/${matchId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        match_date: date || null,
-        match_time: time || null,
-        location: location || null,
-        notes: notes || null,
-        captain_notes: captainNotes || null,
-        line_schedules,
-      }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/team/${slug}/match/${matchId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          match_date: date || null,
+          match_time: time || null,
+          location: location || null,
+          notes: notes || null,
+          captain_notes: captainNotes || null,
+          line_schedules,
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({} as { error?: string }));
+        alert(`Save failed: ${(errBody as { error?: string }).error ?? `HTTP ${res.status}`}`);
+        return;
+      }
       const data = (await res.json().catch(() => ({}))) as { rsvps_reset?: number };
+      // Collapse the editor *before* showing the "RSVPs reset" notice so the
+      // captain isn't staring at an old-looking edit form while confirming.
+      setEditing(false);
+      router.refresh();
       if (data.rsvps_reset && data.rsvps_reset > 0) {
         alert(
           `Saved. ${data.rsvps_reset} RSVP${data.rsvps_reset === 1 ? "" : "s"} reset — players will see a fresh "can you make it?" prompt.`,
         );
       }
-      setEditing(false);
-      router.refresh();
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   if (!editing) {
