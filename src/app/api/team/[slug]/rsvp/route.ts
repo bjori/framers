@@ -8,6 +8,12 @@ import { track } from "@/lib/analytics";
 interface RsvpBody {
   matchId: string;
   status: "yes" | "no" | "maybe";
+  /**
+   * When set, the RSVP applies to a single slot of a split-schedule match.
+   * When omitted, this is the player's "overall" RSVP (applies to every
+   * slot by default).
+   */
+  slotDate?: string | null;
 }
 
 export async function POST(
@@ -71,6 +77,43 @@ export async function POST(
     .bind(session.player_id, body.matchId)
     .first<{ status: string }>();
 
+  const slotDate = body.slotDate ?? null;
+
+  if (slotDate) {
+    // Per-slot override. If the new status matches the player's overall
+    // answer, drop the override so the row simply inherits. Otherwise
+    // upsert the override. This keeps the table sparse and predictable.
+    if (prevRsvp?.status === body.status) {
+      await db
+        .prepare("DELETE FROM availability_slots WHERE player_id = ? AND match_id = ? AND slot_date = ?")
+        .bind(session.player_id, body.matchId, slotDate)
+        .run();
+    } else {
+      await db
+        .prepare(
+          `INSERT INTO availability_slots (player_id, match_id, slot_date, status, responded_at, is_before_deadline)
+           VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'), ?)
+           ON CONFLICT (player_id, match_id, slot_date)
+           DO UPDATE SET status = excluded.status, responded_at = excluded.responded_at, is_before_deadline = excluded.is_before_deadline`,
+        )
+        .bind(session.player_id, body.matchId, slotDate, body.status, beforeDeadline)
+        .run();
+    }
+    // Keep the overall row present (pending) so the player has a record;
+    // this is cheap and makes the UI flow smoother when they later go
+    // back to set an overall answer.
+    await db
+      .prepare(
+        `INSERT INTO availability (player_id, match_id, status, responded_at, is_before_deadline)
+         VALUES (?, ?, 'pending', NULL, ?)
+         ON CONFLICT (player_id, match_id) DO NOTHING`,
+      )
+      .bind(session.player_id, body.matchId, beforeDeadline)
+      .run();
+    await track("rsvp_league_slot", { playerId: session.player_id, detail: `${body.matchId}|${slotDate}:${body.status}` });
+    return NextResponse.json({ ok: true, scope: "slot", slot_date: slotDate, status: body.status });
+  }
+
   await db
     .prepare(
       `INSERT INTO availability (player_id, match_id, status, responded_at, is_before_deadline)
@@ -79,6 +122,16 @@ export async function POST(
        DO UPDATE SET status = excluded.status, responded_at = excluded.responded_at`
     )
     .bind(session.player_id, body.matchId, body.status, beforeDeadline)
+    .run();
+
+  // Setting a new overall answer clears any per-slot overrides that now
+  // agree with it (to keep the table sparse). Overrides that still diverge
+  // are preserved — the player has explicitly said "this slot is different".
+  await db
+    .prepare(
+      "DELETE FROM availability_slots WHERE player_id = ? AND match_id = ? AND status = ?",
+    )
+    .bind(session.player_id, body.matchId, body.status)
     .run();
 
   await track("rsvp_league", { playerId: session.player_id, detail: `${body.matchId}:${body.status}` });
@@ -233,7 +286,20 @@ export async function GET(
         .bind(matchId)
         .all<{ player_id: string; status: string; name: string }>()
     ).results;
-    return NextResponse.json({ responses });
+    let slot_overrides: Array<{ player_id: string; slot_date: string; status: string }> = [];
+    try {
+      slot_overrides = (
+        await db
+          .prepare(
+            "SELECT player_id, slot_date, status FROM availability_slots WHERE match_id = ?",
+          )
+          .bind(matchId)
+          .all<{ player_id: string; slot_date: string; status: string }>()
+      ).results;
+    } catch {
+      // Table may not exist yet.
+    }
+    return NextResponse.json({ responses, slot_overrides });
   }
 
   // All availability for upcoming matches

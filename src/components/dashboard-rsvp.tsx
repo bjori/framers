@@ -2,7 +2,16 @@
 
 import { useState } from "react";
 
-export function DashboardRsvp({ slug, matchId }: { slug: string; matchId: string }) {
+export function DashboardRsvp({
+  slug,
+  matchId,
+  slotDate,
+}: {
+  slug: string;
+  matchId: string;
+  /** When set, the quick RSVP targets a single slot of a split-schedule match. */
+  slotDate?: string;
+}) {
   const [status, setStatus] = useState<"yes" | "no" | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -11,7 +20,7 @@ export function DashboardRsvp({ slug, matchId }: { slug: string; matchId: string
     const res = await fetch(`/api/team/${slug}/rsvp`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ matchId, status: s }),
+      body: JSON.stringify({ matchId, status: s, slotDate: slotDate ?? null }),
     });
     if (res.ok) setStatus(s);
     setSubmitting(false);

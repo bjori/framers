@@ -21,6 +21,7 @@ import {
   formatSlotDateLong,
   formatSlotTime,
 } from "@/lib/line-schedule";
+import { loadSlotOverrides } from "@/lib/availability-slots";
 
 interface RsvpResponse {
   player_id: string;
@@ -195,6 +196,7 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
   const myLineupSlot = session && lineup?.status === "confirmed"
     ? lineupSlots.find((s) => s.player_id === session.player_id && s.is_alternate === 0)
     : null;
+  const mySlotOverrides = session ? await loadSlotOverrides(db, session.player_id, id) : new Map<string, string>();
 
   const matchDate = new Date(match.match_date + "T12:00:00");
   const dateStr = matchDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -342,6 +344,11 @@ export default async function MatchDetailPage({ params }: { params: Promise<{ sl
           matchId={id}
           currentStatus={myRsvp}
           confirmed={!!(match.notes && match.notes.trim())}
+          scheduleBlocks={splitScheduled ? scheduleBlocks : undefined}
+          currentSlotOverrides={[...mySlotOverrides.entries()].map(([slot_date, status]) => ({
+            slot_date,
+            status,
+          }))}
         />
       )}
 

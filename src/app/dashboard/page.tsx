@@ -48,6 +48,7 @@ interface UpcomingLeagueMatch {
   match_format: string;
   vacant_lines_label: string | null;
   schedule_blocks: ScheduleBlock[];
+  slot_overrides: Map<string, string>;
 }
 
 interface UnscoredMatch {
@@ -167,6 +168,30 @@ export default async function DashboardPage() {
       } catch { /* fall through */ }
       return { singles: 1, doubles: 3 };
     };
+    // Load this player's per-slot RSVP overrides in one shot so the dashboard
+    // timeline can show the effective status for each slot of a split match
+    // (and know when a slot still needs an answer).
+    const mySlotOverridesByMatch = new Map<string, Map<string, string>>();
+    if (leagueRows.length > 0) {
+      try {
+        const placeholders = leagueRows.map(() => "?").join(",");
+        const { results: slotRows } = await db
+          .prepare(
+            `SELECT match_id, slot_date, status FROM availability_slots
+             WHERE player_id = ? AND match_id IN (${placeholders})`,
+          )
+          .bind(session.player_id, ...leagueRows.map((r) => r.match_id))
+          .all<{ match_id: string; slot_date: string; status: string }>();
+        for (const r of slotRows) {
+          const inner = mySlotOverridesByMatch.get(r.match_id) ?? new Map<string, string>();
+          inner.set(r.slot_date, r.status);
+          mySlotOverridesByMatch.set(r.match_id, inner);
+        }
+      } catch {
+        // Table may not exist yet.
+      }
+    }
+
     leagueMatches = await Promise.all(
       leagueRows.map(async (m) => ({
         ...m,
@@ -176,12 +201,18 @@ export default async function DashboardPage() {
           scheduleOverridesByMatch.get(m.match_id) ?? [],
           parseMatchFormat(m.match_format),
         ),
+        slot_overrides: mySlotOverridesByMatch.get(m.match_id) ?? new Map<string, string>(),
       })),
     );
 
     pendingRsvpCount = leagueMatches.filter((m) => {
       const confirmed = !!(m.notes && m.notes.trim());
-      return confirmed && !m.rsvp_status;
+      if (!confirmed) return false;
+      // A match is pending if ANY of its slot dates lacks an effective answer
+      // (overall or per-slot). On single-date matches this reduces to the
+      // classic "overall is null" check.
+      const slotDates = [...new Set(m.schedule_blocks.map((b) => b.date))];
+      return slotDates.some((d) => !(m.slot_overrides.get(d) ?? m.rsvp_status));
     }).length;
 
     unscoredMatches = (
@@ -447,8 +478,12 @@ export default async function DashboardPage() {
               if (ev.kind === "league") {
                 const m = ev.data as UpcomingLeagueMatch;
                 const confirmed = !!(m.notes && m.notes.trim());
-                const faded = m.rsvp_status === "no" && !m.lineup_status;
-                const needsRsvp = confirmed && !m.rsvp_status;
+                const slotOverride = m.slot_overrides.get(ev.date);
+                // For split-schedule rows, prefer the slot-specific answer when
+                // one exists; fall back to the overall RSVP otherwise.
+                const effectiveRsvp = slotOverride ?? m.rsvp_status;
+                const faded = effectiveRsvp === "no" && !m.lineup_status;
+                const needsRsvp = confirmed && !effectiveRsvp;
                 const slotBlocks = m.schedule_blocks.filter((b) => b.date === ev.date);
                 const slotBlock = slotBlocks[0];
                 const slotTime = slotBlock?.time ?? m.match_time;
@@ -512,11 +547,11 @@ export default async function DashboardPage() {
                         <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shrink-0 ring-2 ring-sky-300 dark:ring-sky-700" title="In Lineup" />
                       ) : m.lineup_status === "alternate" ? (
                         <span className="w-2.5 h-2.5 rounded-full bg-sky-400/50 shrink-0" title="Alternate" />
-                      ) : m.rsvp_status === "yes" ? (
+                      ) : effectiveRsvp === "yes" ? (
                         <span className="w-2.5 h-2.5 rounded-full bg-accent shrink-0" title="RSVP: Yes" />
-                      ) : m.rsvp_status === "maybe" ? (
+                      ) : effectiveRsvp === "maybe" ? (
                         <span className="w-2.5 h-2.5 rounded-full bg-warning shrink-0" title="RSVP: Maybe" />
-                      ) : m.rsvp_status === "no" ? (
+                      ) : effectiveRsvp === "no" ? (
                         <span className="w-2.5 h-2.5 rounded-full bg-danger shrink-0" title="RSVP: No" />
                       ) : (
                         <span className="w-2.5 h-2.5 rounded-full bg-danger/50 animate-pulse shrink-0" title="RSVP needed" />
@@ -579,7 +614,11 @@ export default async function DashboardPage() {
                             {slotTime ? fmtTime(slotTime) : ""}{m.location ? ` · ${m.location}` : ""}
                           </p>
                         </div>
-                        <DashboardRsvp slug={m.team_slug} matchId={m.match_id} />
+                        <DashboardRsvp
+                          slug={m.team_slug}
+                          matchId={m.match_id}
+                          slotDate={isSplit ? ev.date : undefined}
+                        />
                       </>
                     )}
                     </div>

@@ -41,6 +41,20 @@ const SCHEMA_STATEMENTS = [
      PRIMARY KEY (match_id, line)
    )`,
   `CREATE INDEX IF NOT EXISTS idx_match_line_schedules_date ON match_line_schedules(scheduled_date)`,
+  // Per-slot RSVP overrides for league matches that have a split schedule
+  // (different dates and/or times per line). The base `availability` row is
+  // still the player's default answer for the match; rows here override it
+  // for a specific slot_date. Absence of a row here means "inherit overall".
+  `CREATE TABLE IF NOT EXISTS availability_slots (
+     player_id TEXT NOT NULL REFERENCES players(id),
+     match_id TEXT NOT NULL REFERENCES league_matches(id),
+     slot_date TEXT NOT NULL,
+     status TEXT NOT NULL,
+     responded_at TEXT,
+     is_before_deadline INTEGER NOT NULL DEFAULT 0,
+     PRIMARY KEY (player_id, match_id, slot_date)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_availability_slots_match ON availability_slots(match_id)`,
 ];
 
 const MIGRATIONS = [

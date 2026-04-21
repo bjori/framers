@@ -614,11 +614,47 @@ export async function GET(request: NextRequest) {
         : "";
     }
 
-    const teamMembers = (await db.prepare(
+    const teamMembersRaw = (await db.prepare(
       `SELECT p.id, p.email, p.name FROM team_memberships tm
        JOIN players p ON p.id = tm.player_id
        WHERE tm.team_id = ? AND tm.active = 1`
     ).bind(match.team_id).all<{ id: string; email: string; name: string }>()).results;
+
+    // On a split match, don't spam the hype email to players who have
+    // explicitly declined this specific slot (either via a per-slot "no"
+    // override or an overall "no" with no override). Single-date matches
+    // keep the existing "email everyone" behaviour since filtering there
+    // is already handled elsewhere.
+    const teamMembers = isSplitMatch
+      ? await (async () => {
+          const overallMap = new Map<string, string>();
+          const overallRows = (
+            await db
+              .prepare("SELECT player_id, status FROM availability WHERE match_id = ?")
+              .bind(match.id)
+              .all<{ player_id: string; status: string }>()
+          ).results;
+          for (const r of overallRows) overallMap.set(r.player_id, r.status);
+          const slotMap = new Map<string, string>();
+          try {
+            const slotRows = (
+              await db
+                .prepare(
+                  "SELECT player_id, status FROM availability_slots WHERE match_id = ? AND slot_date = ?",
+                )
+                .bind(match.id, tomorrow)
+                .all<{ player_id: string; status: string }>()
+            ).results;
+            for (const r of slotRows) slotMap.set(r.player_id, r.status);
+          } catch {
+            // availability_slots table may not exist yet
+          }
+          return teamMembersRaw.filter((p) => {
+            const effective = slotMap.get(p.id) ?? overallMap.get(p.id) ?? "pending";
+            return effective !== "no";
+          });
+        })()
+      : teamMembersRaw;
 
     // Send "haven't confirmed" nudge to unconfirmed players
     if (unconfirmedPlayers.length > 0) {
