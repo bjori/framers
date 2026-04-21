@@ -97,12 +97,25 @@ export default {
     }
 
     const listName = recipient.split("@")[0];
+    const listAddress = recipient;
+    // Reply-To points back at the list so hitting "Reply" in any client
+    // fans the message out to everyone (group-convo behavior instead of a
+    // one-way blast). Standard List-* headers make Gmail/Apple Mail/etc.
+    // recognize this as a mailing list and surface the "Reply to list" UI.
+    const listHeaders: Record<string, string> = {
+      "List-Id": `${listName} <${listName}.framers.app>`,
+      "List-Post": `<mailto:${listAddress}>`,
+      "List-Unsubscribe": `<mailto:captain@framers.app?subject=unsubscribe%20${listName}>`,
+      "List-Archive": `<https://framers.app>`,
+      "X-Original-From": senderAddress,
+    };
     const payload = recipients.map((r) => ({
       from: `${senderName} via Framers <captain@framers.app>`,
       to: r.email,
-      subject: `[${listName}] ${subject}`,
+      subject: subject.startsWith(`[${listName}]`) ? subject : `[${listName}] ${subject}`,
       html: htmlBody,
-      reply_to: senderAddress,
+      reply_to: listAddress,
+      headers: listHeaders,
       tracking: { open: false, click: false },
     }));
 
