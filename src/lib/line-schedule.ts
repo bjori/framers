@@ -41,6 +41,36 @@ export function positionToLine(position: string): LineId {
   return position.replace(/[ab]$/i, "").toUpperCase();
 }
 
+export function parseMatchFormat(raw: string | null | undefined): MatchFormat {
+  try {
+    const parsed = JSON.parse(raw || "{}");
+    if (parsed && typeof parsed.singles === "number" && typeof parsed.doubles === "number") {
+      return { singles: parsed.singles, doubles: parsed.doubles };
+    }
+    if (parsed && Array.isArray(parsed.lines)) {
+      const singles = parsed.lines.filter((l: string) => l.startsWith("S")).length;
+      const doubles = parsed.lines.filter((l: string) => l.startsWith("D")).length;
+      if (singles || doubles) return { singles, doubles };
+    }
+  } catch {
+    // fall through
+  }
+  return { singles: 2, doubles: 3 };
+}
+
+/**
+ * Distinct set of effective play dates for a match, considering line
+ * overrides. Used to detect when an edit meaningfully changes "which days
+ * are we playing" so downstream flows (e.g. RSVP reset) can react.
+ */
+export function effectivePlayDates(
+  defaults: MatchScheduleDefaults,
+  overrides: LineScheduleOverride[],
+  format: MatchFormat,
+): string[] {
+  return [...new Set(groupLinesBySlot(defaults, overrides, format).map((b) => b.date))].sort();
+}
+
 export function allLinesForFormat(format: MatchFormat): LineId[] {
   const lines: LineId[] = [];
   for (let i = 1; i <= format.singles; i++) lines.push(`S${i}`);

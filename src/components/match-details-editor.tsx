@@ -72,7 +72,43 @@ export function MatchDetailsEditor({
     setLineRows(next);
   }
 
+  // Compute the set of effective play dates the captain is about to save,
+  // so we can warn if it differs from what's currently on file.
+  const currentPlayDates = useMemo(() => {
+    const dates = new Set<string>();
+    for (const line of allLines) {
+      const override = currentLineSchedules.find((o) => o.line.toUpperCase() === line.toUpperCase());
+      dates.add(override?.scheduled_date || currentDate);
+    }
+    return [...dates].sort();
+  }, [allLines, currentLineSchedules, currentDate]);
+
+  const nextPlayDates = useMemo(() => {
+    const dates = new Set<string>();
+    const base = date || currentDate;
+    if (splitting) {
+      for (const line of allLines) {
+        const row = lineRows[line] ?? { date: "", time: "" };
+        dates.add(row.date || base);
+      }
+    } else {
+      dates.add(base);
+    }
+    return [...dates].sort();
+  }, [splitting, lineRows, date, currentDate, allLines]);
+
+  const willResetRsvps =
+    currentPlayDates.length !== nextPlayDates.length ||
+    currentPlayDates.some((d, i) => d !== nextPlayDates[i]);
+
   async function save() {
+    if (willResetRsvps) {
+      const confirmed = window.confirm(
+        "The match date is changing, so everyone's RSVP will be reset. Players (including those in the lineup) will need to confirm or decline again for the new date(s). The lineup itself will be preserved.\n\nContinue?",
+      );
+      if (!confirmed) return;
+    }
+
     setSaving(true);
 
     const line_schedules = splitting
@@ -99,6 +135,12 @@ export function MatchDetailsEditor({
       }),
     });
     if (res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { rsvps_reset?: number };
+      if (data.rsvps_reset && data.rsvps_reset > 0) {
+        alert(
+          `Saved. ${data.rsvps_reset} RSVP${data.rsvps_reset === 1 ? "" : "s"} reset — players will see a fresh "can you make it?" prompt.`,
+        );
+      }
       setEditing(false);
       router.refresh();
     }
@@ -240,6 +282,16 @@ export function MatchDetailsEditor({
           </div>
         )}
       </div>
+
+      {willResetRsvps && (
+        <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3 text-xs text-amber-900 dark:text-amber-200">
+          <strong>Heads up:</strong> the match date is changing, so saving will
+          reset everyone&apos;s RSVP for this match. The lineup itself will be
+          preserved, but every player (including lineup starters) will need to
+          confirm or decline against the new date(s) so you can see who&apos;s
+          still available.
+        </div>
+      )}
 
       <div className="flex gap-2 pt-2">
         <button

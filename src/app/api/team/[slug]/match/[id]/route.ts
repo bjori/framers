@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { track } from "@/lib/analytics";
-import { replaceLineSchedules, loadLineSchedules } from "@/lib/line-schedule";
+import {
+  replaceLineSchedules,
+  loadLineSchedules,
+  effectivePlayDates,
+  parseMatchFormat,
+} from "@/lib/line-schedule";
 
 interface LineScheduleInput {
   line: string;
@@ -43,13 +48,22 @@ export async function PATCH(
     line_schedules?: LineScheduleInput[];
   };
 
-  // Capture old values so we can log meaningful changelog entries
+  // Capture old values so we can log meaningful changelog entries and
+  // detect whether play dates have shifted (→ reset RSVPs).
   const existing = await db
-    .prepare("SELECT match_date, match_time FROM league_matches WHERE id = ? AND team_id = ?")
+    .prepare("SELECT match_date, match_time, match_format FROM league_matches WHERE id = ? AND team_id = ?")
     .bind(id, team.id)
-    .first<{ match_date: string; match_time: string | null }>();
+    .first<{ match_date: string; match_time: string | null; match_format: string | null }>();
 
   if (!existing) return NextResponse.json({ error: "Match not found" }, { status: 404 });
+
+  const format = parseMatchFormat(existing.match_format);
+  const oldOverrides = await loadLineSchedules(db, id);
+  const oldPlayDates = effectivePlayDates(
+    { match_date: existing.match_date, match_time: existing.match_time },
+    oldOverrides,
+    format,
+  );
 
   const nextMatchDate = body.match_date || existing.match_date;
   const nextMatchTime = body.match_time ?? null;
@@ -79,7 +93,6 @@ export async function PATCH(
   }
 
   if (Array.isArray(body.line_schedules)) {
-    const oldOverrides = await loadLineSchedules(db, id);
     await replaceLineSchedules(
       db,
       id,
@@ -116,6 +129,49 @@ export async function PATCH(
     }
   }
 
-  track("match_details_edited", { playerId: session.player_id, detail: `match:${id}` });
-  return NextResponse.json({ ok: true });
+  // If the set of effective play dates changed, reset everyone's RSVP so
+  // players reconfirm (or bail) against the new date(s). The lineup itself
+  // is intentionally preserved — the captain keeps their decisions, but
+  // every player must now re-RSVP on the new schedule.
+  const newOverridesForDates = Array.isArray(body.line_schedules)
+    ? await loadLineSchedules(db, id)
+    : oldOverrides;
+  const newPlayDates = effectivePlayDates(
+    { match_date: nextMatchDate, match_time: nextMatchTime },
+    newOverridesForDates,
+    format,
+  );
+  const datesChanged =
+    oldPlayDates.length !== newPlayDates.length ||
+    oldPlayDates.some((d, i) => d !== newPlayDates[i]);
+
+  let rsvpsReset = 0;
+  if (datesChanged) {
+    const result = await db
+      .prepare("DELETE FROM availability WHERE match_id = ?")
+      .bind(id)
+      .run();
+    // D1 result shape: { meta: { changes: number } }
+    rsvpsReset = (result as unknown as { meta?: { changes?: number } }).meta?.changes ?? 0;
+    await db
+      .prepare(
+        `INSERT INTO match_changelog (id, match_type, match_id, changed_by_player_id, changed_by_name, field_name, old_value, new_value)
+         VALUES (?, 'league', ?, ?, ?, 'rsvps_reset', ?, ?)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        id,
+        session.player_id,
+        session.name,
+        oldPlayDates.join(","),
+        newPlayDates.join(","),
+      )
+      .run();
+  }
+
+  track("match_details_edited", {
+    playerId: session.player_id,
+    detail: `match:${id}${datesChanged ? `|rsvps_reset=${rsvpsReset}` : ""}`,
+  });
+  return NextResponse.json({ ok: true, rsvps_reset: rsvpsReset, dates_changed: datesChanged });
 }
