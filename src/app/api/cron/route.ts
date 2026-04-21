@@ -17,9 +17,11 @@ import {
   groupLinesBySlot,
   positionToLine,
   describeLines,
+  parseMatchFormat as parseMatchFormatRaw,
   type MatchFormat,
   type LineId,
 } from "@/lib/line-schedule";
+import { formatScheduleSummary } from "@/lib/reschedule-email";
 
 const POSITION_LABELS: Record<string, string> = {
   D1A: "Doubles 1", D1B: "Doubles 1", D2A: "Doubles 2", D2B: "Doubles 2",
@@ -451,6 +453,157 @@ export async function GET(request: NextRequest) {
     const msg = rsvpLadderErr instanceof Error ? rsvpLadderErr.message : String(rsvpLadderErr);
     log.push(`[RSVP ladder] error — ${msg}`);
     console.error("[cron RSVP ladder]", rsvpLadderErr);
+  }
+
+  // 2d. Re-ack nudge after a reschedule. If a match's play dates were reset in
+  // the last 14 days, daily nag lineup starters who still haven't re-confirmed
+  // (acknowledged IS NULL OR = 0) until they do or match day hits.
+  try {
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 86400000).toISOString();
+    const tomorrowForReack = new Date(now.getTime() + 86400000).toISOString().slice(0, 10);
+    const recentReschedules = (
+      await db
+        .prepare(
+          `SELECT DISTINCT mc.match_id
+           FROM match_changelog mc
+           JOIN league_matches lm ON lm.id = mc.match_id
+           WHERE mc.match_type = 'league'
+             AND mc.field_name = 'rsvps_reset'
+             AND mc.created_at >= ?
+             AND mc.created_at < ?
+             AND lm.match_date >= ?
+             AND lm.status NOT IN ('completed','cancelled')`,
+        )
+        .bind(fourteenDaysAgo, today + "T00:00:00Z", today)
+        .all<{ match_id: string }>()
+    ).results;
+
+    for (const row of recentReschedules) {
+      const match = await db
+        .prepare(
+          `SELECT lm.id, lm.opponent_team, lm.match_date, lm.match_time, lm.captain_notes,
+                  lm.notes, lm.location, lm.is_home, lm.match_format as match_format_raw,
+                  t.name as team_name, t.slug as team_slug, t.id as team_id,
+                  t.match_format as team_match_format
+           FROM league_matches lm
+           JOIN teams t ON t.id = lm.team_id
+           WHERE lm.id = ?`,
+        )
+        .bind(row.match_id)
+        .first<{
+          id: string;
+          opponent_team: string;
+          match_date: string;
+          match_time: string | null;
+          captain_notes: string | null;
+          notes: string | null;
+          location: string | null;
+          is_home: number;
+          team_name: string;
+          team_slug: string;
+          team_id: string;
+          team_match_format: string | null;
+        }>();
+      if (!match) continue;
+
+      // Skip if the match is within a day — the T-1 unconfirmed-player flow
+      // takes over there and we don't want to double-blast.
+      if (match.match_date === today || match.match_date === tomorrowForReack) continue;
+
+      const unacked = (
+        await db
+          .prepare(
+            `SELECT ls.position, p.id as player_id, p.name, p.email
+             FROM lineup_slots ls
+             JOIN lineups l ON l.id = ls.lineup_id
+             JOIN players p ON p.id = ls.player_id
+             WHERE l.match_id = ?
+               AND ls.is_alternate = 0
+               AND (ls.acknowledged IS NULL OR ls.acknowledged = 0)`,
+          )
+          .bind(match.id)
+          .all<{ position: string; player_id: string; name: string; email: string }>()
+      ).results;
+
+      if (unacked.length === 0) continue;
+
+      const format = parseMatchFormatRaw(match.team_match_format);
+      const overrides = await loadLineSchedules(db, match.id);
+      const blocks = groupLinesBySlot(
+        { match_date: match.match_date, match_time: match.match_time },
+        overrides,
+        format,
+      );
+      const summary = formatScheduleSummary(blocks);
+      const signoff = await captainSignoff(match.team_id);
+      const sender = listSender(match.team_slug, match.team_name);
+      const matchUrl = `https://framers.app/team/${match.team_slug}/match/${match.id}`;
+
+      // Group unacked players so each gets only one email (they may hold
+      // multiple positions in weird edge cases).
+      const perPlayer = new Map<string, { name: string; email: string; positions: string[] }>();
+      for (const u of unacked) {
+        const rec = perPlayer.get(u.player_id) ?? { name: u.name, email: u.email, positions: [] };
+        rec.positions.push(u.position);
+        perPlayer.set(u.player_id, rec);
+      }
+
+      let sent = 0;
+      for (const [playerId, rec] of perPlayer) {
+        const dedupDetail = `${match.id}|${playerId}|${today}`;
+        const dedup = (
+          await db
+            .prepare(
+              "SELECT COUNT(*) as cnt FROM app_events WHERE event = 'reschedule_reack' AND detail = ?",
+            )
+            .bind(dedupDetail)
+            .first<{ cnt: number }>()
+        )?.cnt ?? 0;
+        if (dedup > 0) continue;
+
+        const lineLabels = rec.positions
+          .map((p) => POSITION_LABELS[p] ?? p)
+          .filter((v, i, a) => a.indexOf(v) === i)
+          .join(" & ");
+
+        await sendEmailBatch([
+          {
+            to: rec.email,
+            subject: `Still need your confirmation — rescheduled ${match.opponent_team} (${summary})`,
+            ...sender,
+            html: emailTemplate(
+              `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #b45309;">Hey ${rec.name.split(" ")[0]},</h2>
+               <p>Our match against <strong>${match.opponent_team}</strong> was rescheduled to <strong>${summary}</strong>, and you&rsquo;re still on the card at <strong>${lineLabels}</strong>.</p>
+               <p>We haven&rsquo;t heard back from you on the new schedule yet — please confirm you can still make it, or flag that you can&rsquo;t so we can line up a replacement.</p>
+               ${buildCaptainNoteHtml(match.captain_notes)}
+               <p style="margin-top: 16px; font-size: 14px; color: #475569;">&mdash; ${signoff}</p>`,
+              {
+                heading: "Re-confirmation needed",
+                ctaUrl: matchUrl,
+                ctaLabel: "Confirm I'll be there",
+                secondaryCtaUrl: matchUrl,
+                secondaryCtaLabel: "Can't make it",
+              },
+            ),
+            headers: matchThreadHeaders(match.id),
+          },
+        ]);
+        await db
+          .prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+          .bind("reschedule_reack", dedupDetail, now.toISOString())
+          .run();
+        sent++;
+      }
+      if (sent > 0) {
+        log.push(
+          `[Reschedule re-ack] ${match.opponent_team} on ${match.match_date}: ${sent} players re-nagged`,
+        );
+      }
+    }
+  } catch (reackErr) {
+    const msg = reackErr instanceof Error ? reackErr.message : String(reackErr);
+    log.push(`[Reschedule re-ack] error — ${msg}`);
+    console.error("[cron reschedule re-ack]", reackErr);
   }
 
   // 3. Pre-match emails: good luck + unconfirmed player nudges (for matches whose
