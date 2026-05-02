@@ -1027,8 +1027,13 @@ export async function GET(request: NextRequest) {
   }
 
   // 5. USTA sync for all active/upcoming teams + ELO recalculation
+  // ORDER BY id keeps the per-team loop deterministic — reliability_score is
+  // currently stored per-player (not per-team_membership), so a player on
+  // multiple active teams gets the LAST iteration's value. Stable order makes
+  // that at least repeatable. Real fix: move reliability_score onto
+  // team_memberships (tracked in pending-work).
   const ustaTeams = (
-    await db.prepare("SELECT id, name, slug FROM teams WHERE status IN ('active','upcoming') AND usta_team_id IS NOT NULL")
+    await db.prepare("SELECT id, name, slug FROM teams WHERE status IN ('active','upcoming') AND usta_team_id IS NOT NULL ORDER BY id")
       .all<{ id: string; name: string; slug: string }>()
   ).results;
 

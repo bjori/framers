@@ -32,6 +32,7 @@ alwaysApply: true
 - **TennisRecord scraping**: Also regex-based — fragile if tennisrecord.com changes markup
 - **Dark mode contrast**: Was fixed systemically but may regress if new hardcoded colors are added
 - **Local network**: Zscaler/WiFi blocks tennisrecord.com and some workers.dev URLs from dev machine
+- **`reliability_score` is per-player but should be per-`team_memberships`**: A player on multiple active teams (e.g., Hannes/Matt once Junior Framers 2026 is active alongside Senior Framers 2026) gets a single shared `players.reliability_score` that's overwritten by whichever team's `updateReliabilityScores` runs last in the cron loop. Mitigated for now by `ORDER BY id` on the cron's `ustaTeams` SELECT (deterministic but still wrong — players see the score for an arbitrary team). Real fix: move the column to `team_memberships(team_id, player_id, reliability_score)`, update `carrot.ts` writers, update the lineup-optimizer's `AvailablePlayer.reliabilityScore` source. ~1-2 hours of work; do it before Junior Framers 2026 starts playing matches.
 
 ## Architecture Notes
 
