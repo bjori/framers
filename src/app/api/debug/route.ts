@@ -963,6 +963,110 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (body.action === "singles-championship-payout-email") {
+      const tournamentSlug = "singles-championship-2026";
+      const tournament = await db
+        .prepare("SELECT id, name FROM tournaments WHERE slug = ?")
+        .bind(tournamentSlug)
+        .first<{ id: string; name: string }>();
+      if (!tournament) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
+
+      const participants = (
+        await db
+          .prepare(
+            `SELECT p.id, p.name, p.email
+             FROM tournament_participants tp
+             JOIN players p ON p.id = tp.player_id
+             WHERE tp.tournament_id = ?
+             ORDER BY p.name`,
+          )
+          .bind(tournament.id)
+          .all<{ id: string; name: string; email: string }>()
+      ).results;
+
+      const dryRun = (body as { dryRun?: boolean }).dryRun === true;
+
+      const sender = listSender(tournamentSlug, tournament.name);
+      const subject = "Final final from your tournament treasurer (turns out I haven't actually paid anyone)";
+      const subjectHasBeenSent = ((await db
+        .prepare("SELECT COUNT(*) as cnt FROM app_events WHERE event = 'tournament_finale_payout' AND detail LIKE ?")
+        .bind(`${tournamentSlug}|%`)
+        .first<{ cnt: number }>())?.cnt ?? 0) > 0;
+      if (subjectHasBeenSent && !(body as { force?: boolean }).force) {
+        return NextResponse.json({
+          error: "Already sent. Pass force:true to send again.",
+          alreadySent: true,
+        });
+      }
+
+      const html = (firstName: string) => emailTemplate(
+        `<h2 style="margin: 0 0 16px 0; font-size: 18px; color: #0c4a6e;">Hey ${firstName},</h2>
+         <p>A confession.</p>
+         <p>Despite the trophy speeches, the championship banner, and three months of weekly digest emails written like the league office had any actual oversight, I &mdash; your tournament treasurer, chairman, and sole banking institution &mdash; have not paid out a single dollar of the prize pool.</p>
+         <p>The good news is that I have not, in fact, been using your $40 to finance a pickleball habit. The funds are intact. Cash is being settled this week. Here&rsquo;s the breakdown:</p>
+         <table role="presentation" style="width: 100%; margin: 16px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0; font-size: 14px;">
+           <tr>
+             <td style="padding: 10px 14px; border-bottom: 1px solid #e2e8f0;"><strong style="color: #047857;">Champion Matt</strong></td>
+             <td style="padding: 10px 14px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">$264</td>
+             <td style="padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #64748b; font-size: 12px;">80% of $330 prize pool</td>
+           </tr>
+           <tr>
+             <td style="padding: 10px 14px; border-bottom: 1px solid #e2e8f0;"><strong style="color: #b45309;">Last place Tristan</strong></td>
+             <td style="padding: 10px 14px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">$66</td>
+             <td style="padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #64748b; font-size: 12px;">20% &mdash; the wooden spoon pays</td>
+           </tr>
+           <tr>
+             <td style="padding: 10px 14px;"><strong>$10 no-show buffer refunded</strong></td>
+             <td style="padding: 10px 14px; text-align: right; font-weight: 700;">$10 each</td>
+             <td style="padding: 10px 14px; color: #64748b; font-size: 12px;">Brad, Dan, Hannes, Joe, Joel, Kirk, Matt, Travis, Tristan</td>
+           </tr>
+         </table>
+         <p>A small bit of unfinished business: the Week 10 <strong>Shimon vs. Sri</strong> match is the lone match of the entire tournament that never actually happened. It is being officially scored as a <strong>double no-show</strong>, which means Shimon and Sri each forfeit their $10 no-show buffer. The $20 is being charged as an administrative fee and going directly into my pocket. (Did the tournament rules technically allow that? Unclear. Tough luck. I wrote the rules.)</p>
+         <p>Final tally: <strong>54 of 55 matches played</strong>, one perfect 10-0 champion, one perfect 0-10 chump, and the most reliable round robin I&rsquo;ve ever had the privilege of administrating. Thanks for showing up and giving a damn.</p>
+         <p>Reply with your preferred way to receive funds (Venmo / Zelle / cash / I-trust-you-just-keep-it) and I&rsquo;ll get you squared away in the next few days.</p>
+         <p style="margin-top: 20px; font-size: 14px; color: #475569;">&mdash; Hannes</p>`,
+        {
+          heading: tournament.name,
+          ctaUrl: `https://framers.app/tournament/${tournamentSlug}`,
+          ctaLabel: "Relive the season",
+        },
+      );
+
+      const batch = participants.map((p) => ({
+        to: p.email,
+        subject,
+        ...sender,
+        html: html(p.name.split(" ")[0]),
+      }));
+
+      if (dryRun) {
+        return NextResponse.json({
+          dryRun: true,
+          recipients: participants.map((p) => ({ name: p.name, email: p.email })),
+          subject,
+          previewHtml: batch[0]?.html ?? null,
+        });
+      }
+
+      const result = await sendEmailBatch(batch);
+      await db
+        .prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+        .bind(
+          "tournament_finale_payout",
+          `${tournamentSlug}|${participants.length} recipients`,
+          new Date().toISOString(),
+        )
+        .run();
+
+      return NextResponse.json({
+        ok: true,
+        sent: result.sent,
+        failed: result.failed,
+        recipients: participants.map((p) => p.name),
+        subject,
+      });
+    }
+
     if (body.action === "trigger-cron") {
       const cronSecret = env.CRON_SECRET;
       if (!cronSecret) {
