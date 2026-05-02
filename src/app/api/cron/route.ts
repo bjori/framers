@@ -1028,8 +1028,8 @@ export async function GET(request: NextRequest) {
 
   // 5. USTA sync for all active/upcoming teams + ELO recalculation
   const ustaTeams = (
-    await db.prepare("SELECT slug FROM teams WHERE status IN ('active','upcoming') AND usta_team_id IS NOT NULL")
-      .all<{ slug: string }>()
+    await db.prepare("SELECT id, name, slug FROM teams WHERE status IN ('active','upcoming') AND usta_team_id IS NOT NULL")
+      .all<{ id: string; name: string; slug: string }>()
   ).results;
 
   let totalScorecards = 0;
@@ -1044,6 +1044,14 @@ export async function GET(request: NextRequest) {
       }
     } catch (e) {
       log.push(`[USTA sync] ${t.slug}: error — ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    try {
+      const { updateReliabilityScores } = await import("@/lib/carrot");
+      await updateReliabilityScores(t.id);
+      log.push(`[${t.name}] reliability scores recomputed`);
+    } catch (e) {
+      log.push(`[${t.name}] reliability score update failed: ${(e as Error).message}`);
     }
   }
 

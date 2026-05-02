@@ -175,6 +175,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, fees });
     }
 
+    if (body.action === "backfill-reliability") {
+      const { updateReliabilityScores } = await import("@/lib/carrot");
+      const teams = (
+        await db.prepare(
+          "SELECT id, name, slug FROM teams WHERE id IN (SELECT DISTINCT team_id FROM team_memberships WHERE active = 1)"
+        ).all<{ id: string; name: string; slug: string }>()
+      ).results;
+      const summary: { team: string; players: number }[] = [];
+      for (const team of teams) {
+        await updateReliabilityScores(team.id);
+        const count = (
+          await db.prepare(
+            "SELECT COUNT(*) as cnt FROM team_memberships WHERE team_id = ? AND active = 1"
+          ).bind(team.id).first<{ cnt: number }>()
+        )?.cnt ?? 0;
+        summary.push({ team: team.name, players: count });
+      }
+      return NextResponse.json({ ok: true, summary });
+    }
+
     if (body.action === "populate-junior") {
       const juniorPlayers = [
         "8dbc87ab-f415-40ee-9fed-e7857445f998",
