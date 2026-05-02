@@ -70,7 +70,7 @@ async function countFollowThrough(
          JOIN league_match_results lmr ON lmr.match_id = lm.id
            AND (lmr.player1_id = ? OR lmr.player2_id = ?)
            AND lmr.is_default_win = 0
-         WHERE lm.team_id = ?`,
+         WHERE lm.team_id = ? AND lm.status = 'completed'`,
       )
       .bind(playerId, playerId, playerId, teamId)
       .first<{ cnt: number }>()
@@ -84,7 +84,7 @@ async function countFollowThrough(
          JOIN availability av ON av.match_id = lm.id AND av.player_id = ? AND av.status = 'yes'
          JOIN lineups lu ON lu.match_id = lm.id
          JOIN lineup_slots ls ON ls.lineup_id = lu.id AND ls.player_id = ?
-         WHERE lm.team_id = ?
+         WHERE lm.team_id = ? AND lm.status = 'completed'
            AND NOT EXISTS (
              SELECT 1 FROM league_match_results lmr
              WHERE lmr.match_id = lm.id
