@@ -110,19 +110,33 @@ That's a `Beta(α=1.5, β=1.5)` Bayesian prior — mildly hump-shaped around 0.5
 score += p.reliabilityScore * 10;  // range 0..10, always positive
 ```
 
-Change to:
+### Math discovery (caught during plan self-review)
+
+A naïve `(reliabilityScore - 0.5) * 10` change is **algebraically equivalent to a uniform −5 shift across all players** — i.e., it's a ranking no-op. Centering on 0.5 alone is purely cosmetic for the optimizer; it only matters if we *also* increase the magnitude. The change has to do real work, not just look like it does.
+
+### Resolution
+
+Bump the multiplier *and* center on neutral:
 
 ```typescript
-score += (p.reliabilityScore - 0.5) * 10;  // range -5 to +5, centered at neutral
+score += (p.reliabilityScore - 0.5) * 20;  // range -10 to +10, centered at neutral
 ```
 
 Effect on priority math (other terms for context: `yes`=+100, fairness deficit=+15/match, default-win make-up=+10):
 
-- A `yes` from a stalwart (1.0): 100 + 5 = **105**
-- A `yes` from a chronic ghost (0.2): 100 + (–3) = **97**
+- A `yes` from a stalwart (1.0): 100 + 10 = **110**
+- A `yes` from a chronic ghost (0.2): 100 + (–6) = **94**
 - A `yes` from a neutral (0.5): 100 + 0 = **100**
 
-The optimizer notices follow-through, but doesn't refuse to play anyone over it — a chronic ghost is ranked just below anyone with a +1 fairness deficit. This is intentional: the system shouldn't act as an enforcement mechanism, just a slightly-thumb-on-the-scale awareness mechanism. The cultural reality of this team is that everyone deserves to play; the optimizer just tilts toward stalwarts when it's a tossup.
+The behavioral knee-point this produces:
+
+| Scenario | Old formula | New formula |
+|---|---|---|
+| Stalwart no-deficit vs. ghost no-deficit | Stalwart wins by 10 | Stalwart wins by 20 |
+| Stalwart no-deficit vs. ghost **+1**-deficit | Ghost wins by 7 | **Stalwart wins by 3** |
+| Stalwart no-deficit vs. ghost **+2**-deficit | Ghost wins by 22 | Ghost wins by 13 |
+
+So a 1-match fairness deficit no longer rescues a chronic ghost; a 2-match deficit still does. Fairness floor (everyone hits their min-match goal eventually) is preserved, but reliability pushes through tossups. This honors "modest, not punitive" — a chronic ghost still gets matches when they're behind on minimum quota, just not when they're already even.
 
 ## Surfacing
 
