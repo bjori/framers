@@ -58,7 +58,7 @@ function rsvpPriority(p: AvailablePlayer): number {
   else if (p.rsvpStatus === "call_last") score += 20;
 
   if (p.rsvpBeforeDeadline) score += 25;
-  score += p.reliabilityScore * 10;
+  score += (p.reliabilityScore - 0.5) * 20;
 
   // Fairness: prioritize players who need more real matches
   // Default wins count officially but don't give real playing time
