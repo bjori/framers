@@ -1067,6 +1067,98 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (body.action === "dougherty-valley-5-18-update") {
+      const matchId = "871f41d8-a663-4ba8-835c-de3302cd3bda";
+      const teamSlug = "junior-framers-2026";
+      const teamName = "Junior Framers";
+      const opponent = "Dougherty Valley HS — Fearless";
+
+      const roster = (
+        await db
+          .prepare(
+            `SELECT p.id, p.name, p.email FROM team_memberships tm
+             JOIN players p ON p.id = tm.player_id
+             WHERE tm.team_id = (SELECT team_id FROM league_matches WHERE id = ?)
+               AND tm.active = 1
+             ORDER BY p.name`,
+          )
+          .bind(matchId)
+          .all<{ id: string; name: string; email: string }>()
+      ).results;
+
+      const dryRun = (body as { dryRun?: boolean }).dryRun === true;
+
+      const sender = listSender(teamSlug, teamName);
+      const subject = "5/18 is locked — also, Stefano played a USTA match alone and we'd love to know how it went";
+      const matchUrl = `https://framers.app/team/${teamSlug}/match/${matchId}`;
+
+      const html = (firstName: string) => emailTemplate(
+        `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${firstName},</h2>
+         <p>Quick situation report on the never-ending Dougherty Valley saga.</p>
+
+         <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0; text-transform: uppercase; letter-spacing: 0.05em;">What we know happened on 4/24</h3>
+         <p><strong>D1 &mdash; Bhaven &amp; Kelly</strong> fought through a brutal two-and-a-half-hour match and dropped it <strong>5-7, 6-7</strong>. Kelly&rsquo;s post-match report, and I quote: <em>&ldquo;We played well, they were good.&rdquo;</em> Heartbreak in two tight tiebreakers, but no one could ask for more grit. Hats off, gentlemen.</p>
+         <p><strong>S1 &mdash; Stefano</strong> showed up by himself, alone, in a singles match, in his <strong>FIRST EVER USTA match</strong>, and&hellip; that is where my data ends. Captain has zero clue what happened. <strong>Stefano</strong>, you walked onto a USTA court alone for the first time in your life. We need to know how it went. Did you cook them? Did they cook you? Did you bagel them and then Andre-Agassi-rip-your-shirt-off on match point? Reply to this thread, the whole team is asking. (Also for the record, you do look exactly like Andre Agassi.)</p>
+
+         <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0; text-transform: uppercase; letter-spacing: 0.05em;">What&rsquo;s next: Monday 5/18 @ 6:00 PM, Greenbrook</h3>
+         <p>S2, D2, D3 close out the remaining three lines.</p>
+         <table role="presentation" style="width: 100%; margin: 12px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; border-spacing: 0; font-size: 14px;">
+           <tr><td style="padding: 8px 14px; font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0;">S2</td><td style="padding: 8px 14px; border-bottom: 1px solid #e2e8f0;">Brad Allen</td></tr>
+           <tr><td style="padding: 8px 14px; font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0;">D2</td><td style="padding: 8px 14px; border-bottom: 1px solid #e2e8f0;">Juan Garrahan &amp; Jun Alarcon</td></tr>
+           <tr><td style="padding: 8px 14px; font-weight: 600; color: #475569;">D3</td><td style="padding: 8px 14px;">Joel Zdarko &amp; Joe Moss</td></tr>
+         </table>
+
+         <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0; text-transform: uppercase; letter-spacing: 0.05em;">Scouting report</h3>
+         <p>We&rsquo;re <strong>0-2</strong> on the season and we badly need these points. The read on Dougherty Valley is that they&rsquo;re absolutely beatable &mdash; D1 was a coin-flip we lost in two tiebreakers, S1 is still a mystery, and the next three lines are entirely there for the taking. Show up, give it everything, and we walk out of here 1-2 with momentum. Beating this team is doable. Let&rsquo;s do it.</p>
+
+         <p style="margin: 20px 0 8px 0;"><strong>If you played on 4/24</strong> (Stefano, Bhaven, Kelly): thank you again &mdash; your job here is done. Stefano, except for telling us what happened. Spill.</p>
+         <p style="margin: 8px 0;"><strong>Everyone else</strong>: please RSVP for 5/18 in the app, even if you&rsquo;re not on the card. The captain needs to know who&rsquo;s available in case anything goes sideways for the third time.</p>
+
+         <p style="margin: 20px 0 8px 0; font-size: 14px; color: #475569;">Apologies for the chaos. The original schedule got rained out, the makeup got split, and now we&rsquo;ve split the makeup again. Promise this is the last reshuffle. (Probably.)</p>
+         <p style="margin: 16px 0 0 0; font-size: 14px; color: #475569;">&mdash; Hannes</p>`,
+        {
+          heading: `${teamName} vs Dougherty Valley`,
+          ctaUrl: matchUrl,
+          ctaLabel: "Open match & RSVP",
+        },
+      );
+
+      const batch = roster.map((p) => ({
+        to: p.email,
+        subject,
+        ...sender,
+        html: html(p.name.split(" ")[0]),
+        headers: matchThreadHeaders(matchId, { isFirst: false }),
+      }));
+
+      if (dryRun) {
+        return NextResponse.json({
+          dryRun: true,
+          recipients: roster.map((p) => ({ name: p.name, email: p.email })),
+          subject,
+          previewHtml: batch[0]?.html ?? null,
+        });
+      }
+
+      const result = await sendEmailBatch(batch);
+      await db
+        .prepare("INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)")
+        .bind(
+          "dougherty_5_18_status",
+          `${matchId}|${roster.length} recipients`,
+          new Date().toISOString(),
+        )
+        .run();
+
+      return NextResponse.json({
+        ok: true,
+        sent: result.sent,
+        failed: result.failed,
+        recipients: roster.map((p) => p.name),
+        subject,
+      });
+    }
+
     if (body.action === "trigger-cron") {
       const cronSecret = env.CRON_SECRET;
       if (!cronSecret) {
