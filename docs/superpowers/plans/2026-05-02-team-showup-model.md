@@ -606,12 +606,15 @@ section 'Lineup-optimizer integration'."
 
 ---
 
-## Task 6: Backfill action in `/api/debug`
+## Task 6: Backfill action + wire cron to keep scores fresh
 
 **Files:**
-- Modify: `src/app/api/debug/route.ts`
+- Modify: `src/app/api/debug/route.ts` (add `backfill-reliability` action)
+- Modify: `src/app/api/cron/route.ts` (call `updateReliabilityScores` after USTA sync)
 
-- [ ] **Step 6.1: Add the `backfill-reliability` action**
+> **Why two changes:** the spec originally claimed the daily cron already called `updateReliabilityScores` — `grep` proved it doesn't. Without wiring the cron, the backfill is one-shot and scores go stale after the first match completes. So this task does both: a one-time backfill action (so we don't have to wait a day after deploy for the cron to seed scores) AND wires the cron (so scores stay current going forward).
+
+- [ ] **Step 6.1: Add the `backfill-reliability` action to `/api/debug`**
 
 In `src/app/api/debug/route.ts`, find the section where existing actions are dispatched (look for `if (body.action === "setup-fees")` or similar). Add immediately after one of the existing action handlers:
 
@@ -633,35 +636,56 @@ In `src/app/api/debug/route.ts`, find the section where existing actions are dis
     }
 ```
 
-- [ ] **Step 6.2: Type-check**
+- [ ] **Step 6.2: Wire `updateReliabilityScores` into the daily cron**
+
+Read `src/app/api/cron/route.ts` to find the section that calls `syncUstaTeam` for each active team (search for `syncUstaTeam`). After that call (and after the existing `recalculateElo(team.id)` call if present in the same loop), add:
+
+```typescript
+const { updateReliabilityScores } = await import("@/lib/carrot");
+await updateReliabilityScores(team.id);
+log.push(`[${team.name}] reliability scores recomputed`);
+```
+
+Place it AFTER USTA sync, not before — we want to score on the latest results. If `recalculateElo` is in the same loop iteration, place the `updateReliabilityScores` call after it (ELO recompute first, then reliability — both are derivations from the freshly-synced match results).
+
+**Important:** wrap in `try/catch` consistent with the rest of the cron's error handling (most cron blocks log and continue rather than aborting the whole cron run on a single team's failure). Look at how `syncUstaTeam` is wrapped and follow the same pattern.
+
+- [ ] **Step 6.3: Type-check**
 
 Run: `npx tsc --noEmit`
 Expected: No errors.
 
-- [ ] **Step 6.3: Run all tests**
+- [ ] **Step 6.4: Run all tests**
 
 Run: `npm test`
 Expected: 18 passed.
 
-- [ ] **Step 6.4: Build to verify Cloudflare bundling works**
+- [ ] **Step 6.5: Build to verify Cloudflare bundling works**
 
 Run: `npx opennextjs-cloudflare build`
 Expected: build completes with `OpenNext build complete.`
 
-- [ ] **Step 6.5: Commit**
+- [ ] **Step 6.6: Commit**
 
 ```bash
-git add src/app/api/debug/route.ts
-git commit -m "api/debug: add backfill-reliability action for one-time reliability_score recompute
+git add src/app/api/debug/route.ts src/app/api/cron/route.ts
+git commit -m "reliability: backfill action + wire cron to keep scores fresh
 
-Run once after deploying the new follow-through-rate formula:
-  curl -sk -X POST 'https://framers.app/api/debug' \\
-    -H \"Authorization: Bearer \$ADMIN_SECRET\" \\
-    -H 'Content-Type: application/json' \\
-    -d '{\"action\":\"backfill-reliability\"}'
+Two changes that complete the team show-up model rollout:
 
-The daily cron continues calling updateReliabilityScores per team,
-so this action is only needed once at deploy time."
+1. /api/debug action 'backfill-reliability' — recomputes
+   players.reliability_score for all active rosters using the
+   new Beta-smoothed follow-through-rate formula. Run once at
+   deploy time:
+     curl -sk -X POST 'https://framers.app/api/debug' \\
+       -H \"Authorization: Bearer \$ADMIN_SECRET\" \\
+       -H 'Content-Type: application/json' \\
+       -d '{\"action\":\"backfill-reliability\"}'
+
+2. /api/cron now calls updateReliabilityScores per team after
+   syncUstaTeam, so scores stay current as new matches complete.
+   The spec originally claimed the cron already did this — grep
+   showed it didn't. This commit closes that gap."
 ```
 
 ---

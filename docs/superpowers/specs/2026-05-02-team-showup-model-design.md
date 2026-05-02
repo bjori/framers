@@ -27,7 +27,9 @@ That isn't a tone problem; it's a math problem. The fix is upstream: get the dat
 
 ## Architecture
 
-A pure derivation change inside `src/lib/carrot.ts`. No new tables, no new API routes, no new background jobs. The existing daily cron (`/api/cron`) already calls `updateReliabilityScores` for each active team — that keeps working with the new formula. One backfill on first deploy.
+A pure derivation change inside `src/lib/carrot.ts`. No new tables, no new API routes.
+
+> **Implementation correction (2026-05-02, post-spec):** the spec originally claimed "the existing daily cron already calls `updateReliabilityScores`." That was wrong — `grep updateReliabilityScores` shows no callers outside `carrot.ts` itself. The implementation plan therefore adds two integration steps: (1) a one-shot backfill via `/api/debug` on first deploy, and (2) wiring `updateReliabilityScores` into `/api/cron/route.ts` after the existing `syncUstaTeam` call so scores stay fresh going forward. Both land in Task 6 of the plan.
 
 ```
 +-----------------------------+        +--------------------------+
