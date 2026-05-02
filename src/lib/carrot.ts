@@ -19,6 +19,24 @@
  */
 import { getDB } from "@/lib/db";
 
+/**
+ * Compute the Beta-smoothed follow-through rate from raw counts.
+ *
+ * Formula: Beta(α=1.5, β=1.5) prior — a new player with zero history
+ * sits at 0.5 (neutral). One bad day doesn't hard-zero a player; one
+ * good day doesn't crown them either. A stalwart with 10 kept and 0
+ * ghosted lands around 0.88; a chronic ghost with 0 kept and 5 ghosted
+ * lands around 0.19.
+ *
+ * See docs/superpowers/specs/2026-05-02-team-showup-model-design.md
+ * for the calibration table and design rationale.
+ */
+export function computeFollowThroughRate(kept: number, ghosted: number): number {
+  const alpha = 1.5;
+  const beta = 1.5;
+  return (kept + alpha) / (kept + ghosted + alpha + beta);
+}
+
 export interface PlayerCarrot {
   playerId: string;
   name: string;
