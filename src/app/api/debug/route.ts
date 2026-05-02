@@ -1089,16 +1089,20 @@ export async function POST(request: NextRequest) {
       const dryRun = (body as { dryRun?: boolean }).dryRun === true;
 
       const sender = listSender(teamSlug, teamName);
-      const subject = "5/18 is locked — also, Stefano played a USTA match alone and we'd love to know how it went";
+      const subject = "Closing out Dougherty Valley: Monday 5/18 @ 6pm — we owe ourselves this one";
       const matchUrl = `https://framers.app/team/${teamSlug}/match/${matchId}`;
 
       const html = (firstName: string) => emailTemplate(
         `<h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0c4a6e;">Hey ${firstName},</h2>
-         <p>Quick situation report on the never-ending Dougherty Valley saga.</p>
+         <p>Status report on the never-ending Dougherty Valley saga.</p>
 
          <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0; text-transform: uppercase; letter-spacing: 0.05em;">What we know happened on 4/24</h3>
-         <p><strong>D1 &mdash; Bhaven &amp; Kelly</strong> fought through a brutal two-and-a-half-hour match and dropped it <strong>5-7, 6-7</strong>. Kelly&rsquo;s post-match report, and I quote: <em>&ldquo;We played well, they were good.&rdquo;</em> Heartbreak in two tight tiebreakers, but no one could ask for more grit. Hats off, gentlemen.</p>
-         <p><strong>S1 &mdash; Stefano</strong> showed up by himself, alone, in a singles match, in his <strong>FIRST EVER USTA match</strong>, and&hellip; that is where my data ends. Captain has zero clue what happened. <strong>Stefano</strong>, you walked onto a USTA court alone for the first time in your life. We need to know how it went. Did you cook them? Did they cook you? Did you bagel them and then Andre-Agassi-rip-your-shirt-off on match point? Reply to this thread, the whole team is asking. (Also for the record, you do look exactly like Andre Agassi.)</p>
+         <p><strong>D1 &mdash; Bhaven &amp; Kelly</strong> went the distance in a two-and-a-half-hour war and dropped it <strong>5-7, 6-7</strong>. Two tight tiebreakers. The thinnest possible margin. Kelly&rsquo;s report, after the dust settled:</p>
+         <blockquote style="margin: 12px 0; padding: 10px 14px; border-left: 3px solid #38bdf8; background: #f0f9ff; color: #0c4a6e; font-size: 14px; line-height: 1.6;">
+           &ldquo;It was crazy, and the best part was that for the last set and a half we had the whole place to ourselves. At times we were going back and forth 20+ times, countless deuces. Which is too bad because it would&rsquo;ve been fairly entertaining!&rdquo;
+         </blockquote>
+         <p>Heartbreak in the closest possible margin. The kind of match where you walk off the court with both legs shaking and zero regrets. Hats off, gentlemen.</p>
+         <p><strong>S1 &mdash; Stefano</strong> walked onto a USTA court alone, by himself, in a singles match, for the <strong>first time in his life</strong>, and&hellip; that is where my data ends. Captain has zero clue what happened. <strong>Stefano</strong> &mdash; we need to know. Did you cook them? Did they cook you? Did you bagel them and then Andre-Agassi-rip-your-shirt-off on match point? Reply to this thread, the whole team is asking. (And for the record, you do look exactly like Andre Agassi.)</p>
 
          <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0; text-transform: uppercase; letter-spacing: 0.05em;">What&rsquo;s next: Monday 5/18 @ 6:00 PM, Greenbrook</h3>
          <p>S2, D2, D3 close out the remaining three lines.</p>
@@ -1109,7 +1113,7 @@ export async function POST(request: NextRequest) {
          </table>
 
          <h3 style="font-size: 14px; color: #64748b; margin: 20px 0 8px 0; text-transform: uppercase; letter-spacing: 0.05em;">Scouting report</h3>
-         <p>We&rsquo;re <strong>0-2</strong> on the season and we badly need these points. The read on Dougherty Valley is that they&rsquo;re absolutely beatable &mdash; D1 was a coin-flip we lost in two tiebreakers, S1 is still a mystery, and the next three lines are entirely there for the taking. Show up, give it everything, and we walk out of here 1-2 with momentum. Beating this team is doable. Let&rsquo;s do it.</p>
+         <p>On paper, <strong>this match is ours to lose.</strong> They took D1 in two tiebreakers &mdash; that is a coin flip we lost, full stop &mdash; and for all we know S1 went the same way. The next three lines are ours to win if we play our game. We&rsquo;re <strong>0-2</strong> to start the season and we are <strong>not staying there</strong>. Show up Monday, swing freely, hit the court like the team that should be winning this. Because we are.</p>
 
          <p style="margin: 20px 0 8px 0;"><strong>If you played on 4/24</strong> (Stefano, Bhaven, Kelly): thank you again &mdash; your job here is done. Stefano, except for telling us what happened. Spill.</p>
          <p style="margin: 8px 0;"><strong>Everyone else</strong>: please RSVP for 5/18 in the app, even if you&rsquo;re not on the card. The captain needs to know who&rsquo;s available in case anything goes sideways for the third time.</p>
