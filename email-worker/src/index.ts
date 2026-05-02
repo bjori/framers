@@ -1,7 +1,6 @@
 /**
  * Inbound email router:
  *   - seniors@ / juniors@ / singles@ replies are fanned out to roster members via Resend
- *   - venmo@ processes Venmo payment notifications and auto-records payments
  *
  * Requires RESEND_API_KEY on **framers-email-router**
  * (same key as main app is fine) — it is NOT inherited from greenbrook-framers; set with:
@@ -9,7 +8,6 @@
  * See cloudflare-deployment.mdc.
  */
 import PostalMime from "postal-mime";
-import { parseVenmoEmail, processVenmoPayment } from "./venmo";
 
 interface Env {
   DB: D1Database;
@@ -85,12 +83,6 @@ function extractEmail(addr: string): string {
 export default {
   async email(message: ForwardableEmailMessage, env: Env): Promise<void> {
     const recipient = extractEmail(message.to);
-
-    // --- Venmo payment handler ---
-    if (recipient === "venmo@framers.app") {
-      await handleVenmoEmail(message, env);
-      return;
-    }
 
     // --- Mailing list handler ---
     const config = LIST_CONFIG[recipient];
@@ -368,74 +360,6 @@ async function forwardToAdmin(
     });
   } catch (e) {
     console.error("[EMAIL-WORKER] Failed to forward non-roster email to admin:", e);
-  }
-}
-
-async function handleVenmoEmail(message: ForwardableEmailMessage, env: Env): Promise<void> {
-  const rawEmail = await new Response(message.raw).arrayBuffer();
-  const parsed = await new PostalMime().parse(rawEmail);
-  const subject = parsed.subject || "";
-  const html = parsed.html || parsed.text || "";
-  const sender = extractEmail(message.from);
-
-  // Always forward to admin so they can see all emails sent to this address
-  // (account verification emails, receipts, etc.)
-  if (env.RESEND_API_KEY) {
-    try {
-      await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        },
-        body: JSON.stringify({
-          from: `Venmo Forwarder <captain@framers.app>`,
-          to: ADMIN_FORWARD,
-          subject: `[venmo@] ${subject}`,
-          html: parsed.html || `<pre style="font-family: sans-serif; white-space: pre-wrap;">${escapeHtml(parsed.text || "(empty)")}</pre>`,
-          reply_to: sender,
-        }),
-      });
-    } catch (e) {
-      console.error("[VENMO] Failed to forward email to admin:", e);
-    }
-  }
-
-  // Only process emails from Venmo
-  if (!sender.includes("venmo.com") && !sender.includes("amazonses.com")) {
-    try {
-      await env.DB.prepare(
-        "INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)"
-      ).bind("venmo_email_non_venmo", `from:${sender}|subject:${subject}`, new Date().toISOString()).run();
-    } catch {}
-    return;
-  }
-
-  const payment = parseVenmoEmail(subject, html);
-  if (!payment) {
-    try {
-      await env.DB.prepare(
-        "INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)"
-      ).bind("venmo_email_unparsed", `from:${sender}|subject:${subject}`, new Date().toISOString()).run();
-    } catch {}
-    return;
-  }
-
-  try {
-    const result = await processVenmoPayment(payment, env.DB, env.RESEND_API_KEY);
-    console.log(`[VENMO] ${result}`);
-    try {
-      await env.DB.prepare(
-        "INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)"
-      ).bind("venmo_payment_processed", result, new Date().toISOString()).run();
-    } catch {}
-  } catch (e) {
-    console.error("[VENMO] Processing error:", e);
-    try {
-      await env.DB.prepare(
-        "INSERT INTO app_events (event, detail, created_at) VALUES (?, ?, ?)"
-      ).bind("venmo_payment_error", `${subject}|${e instanceof Error ? e.message : String(e)}`, new Date().toISOString()).run();
-    } catch {}
   }
 }
 

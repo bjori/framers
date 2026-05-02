@@ -360,24 +360,19 @@ export default async function DashboardPage() {
                 Score needed: vs {m.opponent_name} ({new Date(m.scheduled_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })})
               </Link>
             ))}
-            {owedFees.map((f) => {
-              const owedDollars = ((f.amount_cents - f.paid_cents) / 100).toFixed(2);
-              const venmoNote = encodeURIComponent(`${f.label}`);
-              const venmoUrl = `https://venmo.com/framersapp?txn=pay&amount=${owedDollars}&note=${venmoNote}`;
-              return (
-                <div key={f.fee_id} className="text-sm flex items-center gap-2">
-                  <span>Owed: ${((f.amount_cents - f.paid_cents) / 100).toFixed(0)} for {f.label}</span>
-                  <a
-                    href={venmoUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs font-bold bg-[#008CFF] text-white px-2 py-0.5 rounded hover:bg-[#0074D4] transition-colors"
-                  >
-                    Pay via Venmo
-                  </a>
-                </div>
-              );
-            })}
+            {owedFees.map((f) => (
+              <div key={f.fee_id} className="text-sm flex items-center gap-2">
+                <span>Owed: ${((f.amount_cents - f.paid_cents) / 100).toFixed(0)} for {f.label}</span>
+                <a
+                  href="https://account.venmo.com/u/bjori"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-bold bg-[#008CFF] text-white px-2 py-0.5 rounded hover:bg-[#0074D4] transition-colors"
+                >
+                  Pay via Venmo
+                </a>
+              </div>
+            ))}
             {ustaNeeded.map((t) => (
               <div key={t.team_slug} className="text-sm">
                 <p className="font-semibold">USTA roster registration needed</p>
