@@ -1,7 +1,7 @@
 # Team Show-Up Model — Design Spec
 
 **Date:** 2026-05-02
-**Status:** Approved (brainstorming complete) — ready for implementation plan
+**Status:** Shipped 2026-05-02 (commits `576645b..94af36f`, deploy version `7e1cba93-523e-413b-a7ef-100942f730c3`, backfilled both active rosters)
 **Author:** Hannes + Cursor agent (Superpowers `brainstorming` skill)
 **Scope:** Fix the data side of the reliability/show-up model. Layer-on rituals (standby ladder, roll-call, vibe-aware copy) live in a separate follow-up spec ("Brainstorm B").
 
