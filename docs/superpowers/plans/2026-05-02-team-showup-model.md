@@ -266,7 +266,7 @@ export function computeFollowThroughRate(kept: number, ghosted: number): number 
 - [ ] **Step 3.4: Run tests, verify they pass**
 
 Run: `npm test`
-Expected: All 12 `computeFollowThroughRate` tests pass. Sanity test still passes.
+Expected: All 13 `computeFollowThroughRate` tests pass. Sanity test still passes.
 
 - [ ] **Step 3.5: Delete sanity test**
 
@@ -274,7 +274,7 @@ Expected: All 12 `computeFollowThroughRate` tests pass. Sanity test still passes
 rm src/lib/__tests__/sanity.test.ts
 ```
 
-Run `npm test` again. Expected: 12 passed.
+Run `npm test` again. Expected: 13 passed.
 
 - [ ] **Step 3.6: Commit**
 
@@ -448,7 +448,7 @@ Expected: No errors. If callers of `PlayerCarrot` are typed, they must compile a
 - [ ] **Step 4.6: Run unit tests**
 
 Run: `npm test`
-Expected: 12 passed. (No new tests this task — SQL behavior is verified against production in Task 8.)
+Expected: 13 passed. (No new tests this task — SQL behavior is verified against production in Task 8.)
 
 - [ ] **Step 4.7: Commit**
 
@@ -579,7 +579,7 @@ Update the JSDoc comment at the top of the file (lines 1-24) only if it mentions
 - [ ] **Step 5.4: Run tests, verify all pass**
 
 Run: `npm test`
-Expected: All Task 3 tests (12) + all Task 5 tests (5) pass.
+Expected: All Task 3 tests (13) + all Task 5 tests (5) pass.
 
 - [ ] **Step 5.5: Commit**
 
@@ -641,7 +641,7 @@ Expected: No errors.
 - [ ] **Step 6.3: Run all tests**
 
 Run: `npm test`
-Expected: 17 passed.
+Expected: 18 passed.
 
 - [ ] **Step 6.4: Build to verify Cloudflare bundling works**
 
