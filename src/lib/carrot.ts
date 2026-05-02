@@ -37,6 +37,67 @@ export function computeFollowThroughRate(kept: number, ghosted: number): number 
   return (kept + alpha) / (kept + ghosted + alpha + beta);
 }
 
+interface FollowThroughCounts {
+  followedThrough: number;
+  ghosted: number;
+}
+
+/**
+ * Count, for one player on one team, how many league matches they
+ * said yes to AND played (followed through; the "kept" input to
+ * computeFollowThroughRate) versus said yes to AND had a lineup slot
+ * for AND did not appear in results (ghosted).
+ *
+ * Excluded from both: default-win lines, matches where they didn't
+ * have a lineup slot at all, and any RSVP status other than 'yes'.
+ *
+ * USTA-forfeited-by-us lines are safe — see the file header comment
+ * for why neither the followed-through nor the ghosted query
+ * false-positives on them.
+ */
+async function countFollowThrough(
+  playerId: string,
+  teamId: string,
+): Promise<FollowThroughCounts> {
+  const db = await getDB();
+
+  const followedThrough = (
+    await db
+      .prepare(
+        `SELECT COUNT(DISTINCT lm.id) as cnt
+         FROM league_matches lm
+         JOIN availability av ON av.match_id = lm.id AND av.player_id = ? AND av.status = 'yes'
+         JOIN league_match_results lmr ON lmr.match_id = lm.id
+           AND (lmr.player1_id = ? OR lmr.player2_id = ?)
+           AND lmr.is_default_win = 0
+         WHERE lm.team_id = ?`,
+      )
+      .bind(playerId, playerId, playerId, teamId)
+      .first<{ cnt: number }>()
+  )?.cnt ?? 0;
+
+  const ghosted = (
+    await db
+      .prepare(
+        `SELECT COUNT(DISTINCT lm.id) as cnt
+         FROM league_matches lm
+         JOIN availability av ON av.match_id = lm.id AND av.player_id = ? AND av.status = 'yes'
+         JOIN lineups lu ON lu.match_id = lm.id
+         JOIN lineup_slots ls ON ls.lineup_id = lu.id AND ls.player_id = ?
+         WHERE lm.team_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM league_match_results lmr
+             WHERE lmr.match_id = lm.id
+               AND (lmr.player1_id = ? OR lmr.player2_id = ?)
+           )`,
+      )
+      .bind(playerId, playerId, teamId, playerId, playerId)
+      .first<{ cnt: number }>()
+  )?.cnt ?? 0;
+
+  return { followedThrough, ghosted };
+}
+
 export interface PlayerCarrot {
   playerId: string;
   name: string;
@@ -47,6 +108,8 @@ export interface PlayerCarrot {
   minMatchesGoal: number;
   earlyRsvpCount: number;
   totalRsvpCount: number;
+  followedThroughCount: number;
+  ghostedCount: number;
 }
 
 export async function calculateCarrotScores(teamId: string): Promise<PlayerCarrot[]> {
@@ -114,6 +177,8 @@ export async function calculateCarrotScores(teamId: string): Promise<PlayerCarro
       ).bind(player.id, teamId).first<{ cnt: number }>()
     )?.cnt ?? 0;
 
+    const { followedThrough, ghosted } = await countFollowThrough(player.id, teamId);
+
     const canStillReachGoal = played + remainingMatches >= minGoal;
 
     results.push({
@@ -126,6 +191,8 @@ export async function calculateCarrotScores(teamId: string): Promise<PlayerCarro
       minMatchesGoal: minGoal,
       earlyRsvpCount: earlyRsvp,
       totalRsvpCount: totalRsvp,
+      followedThroughCount: followedThrough,
+      ghostedCount: ghosted,
     });
   }
 
@@ -142,35 +209,12 @@ export async function updateReliabilityScores(teamId: string): Promise<void> {
     ).bind(teamId).all<{ id: string }>()
   ).results;
 
-  const totalMatchCount = (
-    await db.prepare(
-      "SELECT COUNT(*) as cnt FROM league_matches WHERE team_id = ? AND status IN ('completed', 'open')"
-    ).bind(teamId).first<{ cnt: number }>()
-  )?.cnt ?? 0;
-
-  if (totalMatchCount === 0) return;
-
   for (const p of roster) {
-    const responded = (
-      await db.prepare(
-        `SELECT COUNT(*) as cnt FROM availability
-         WHERE player_id = ? AND match_id IN (SELECT id FROM league_matches WHERE team_id = ?)`
-      ).bind(p.id, teamId).first<{ cnt: number }>()
-    )?.cnt ?? 0;
-
-    const earlyResponded = (
-      await db.prepare(
-        `SELECT COUNT(*) as cnt FROM availability
-         WHERE player_id = ? AND is_before_deadline = 1
-         AND match_id IN (SELECT id FROM league_matches WHERE team_id = ?)`
-      ).bind(p.id, teamId).first<{ cnt: number }>()
-    )?.cnt ?? 0;
-
-    const responseRate = responded / totalMatchCount;
-    const earlyRate = responded > 0 ? earlyResponded / responded : 0;
-    const score = Math.min(1, responseRate * 0.6 + earlyRate * 0.4);
-
-    await db.prepare("UPDATE players SET reliability_score = ? WHERE id = ?")
-      .bind(Math.round(score * 100) / 100, p.id).run();
+    const { followedThrough, ghosted } = await countFollowThrough(p.id, teamId);
+    const score = computeFollowThroughRate(followedThrough, ghosted);
+    await db
+      .prepare("UPDATE players SET reliability_score = ? WHERE id = ?")
+      .bind(Math.round(score * 100) / 100, p.id)
+      .run();
   }
 }
