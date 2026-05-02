@@ -42,6 +42,41 @@ async function getListMembers(db: D1Database, config: { slug: string; type: "tea
   ).bind(config.slug).all<{ email: string; name: string }>()).results;
 }
 
+/**
+ * Recipients for non-roster admin forwards. Always includes the global
+ * admin (Hannes) plus any active captain/co-captain on the list's team
+ * so co-captains get visibility on inbound from outsiders. Tournament
+ * lists fall back to admin-only since tournaments don't have captains.
+ */
+async function getAdminRecipients(
+  db: D1Database,
+  config: { slug: string; type: "team" | "tournament" },
+): Promise<string[]> {
+  const set = new Set<string>([ADMIN_FORWARD.toLowerCase()]);
+  if (config.type === "team") {
+    try {
+      const captains = (
+        await db
+          .prepare(
+            `SELECT p.email FROM team_memberships tm
+             JOIN players p ON p.id = tm.player_id
+             WHERE tm.team_id = (SELECT id FROM teams WHERE slug = ?)
+               AND tm.active = 1
+               AND tm.role IN ('captain','co-captain')`,
+          )
+          .bind(config.slug)
+          .all<{ email: string }>()
+      ).results;
+      for (const c of captains) {
+        if (c.email) set.add(c.email.trim().toLowerCase());
+      }
+    } catch (e) {
+      console.error("[EMAIL-WORKER] Failed to load captains for admin forward:", e);
+    }
+  }
+  return [...set];
+}
+
 function extractEmail(addr: string): string {
   const m = addr.match(/<([^>]+)>/);
   return (m ? m[1] : addr).trim().toLowerCase();
@@ -129,10 +164,11 @@ export default {
 
     // --- Sender allowlist ---
     // Only roster members can fan out a list email. Non-members get
-    // forwarded to admin so legitimate "I want to join" inquiries aren't
-    // lost, but no fan-out happens.
+    // forwarded to admin + co-captains so legitimate "I want to join"
+    // inquiries aren't lost, but no fan-out happens.
     const memberEmails = new Set(members.map((m) => m.email.toLowerCase()));
     if (!memberEmails.has(senderAddress)) {
+      const adminRecipients = await getAdminRecipients(env.DB, config);
       await forwardToAdmin(env, {
         listName,
         listAddress,
@@ -144,6 +180,7 @@ export default {
           (parsed.text
             ? `<pre style="font-family: sans-serif; white-space: pre-wrap;">${escapeHtml(parsed.text)}</pre>`
             : "<p>(empty message)</p>"),
+        recipients: adminRecipients,
       });
       try {
         await env.DB.prepare(
@@ -151,7 +188,7 @@ export default {
         )
           .bind(
             "list_reply_rejected",
-            `non_member|${listName}|${senderAddress}|forwarded_to_admin|${subject}`,
+            `non_member|${listName}|${senderAddress}|forwarded_to=${adminRecipients.join(",")}|${subject}`,
             new Date().toISOString(),
           )
           .run();
@@ -279,10 +316,10 @@ export default {
 };
 
 /**
- * Forward an email from a non-roster sender to the admin so legitimate
- * inbound from outsiders ("hey, can I join the team?") isn't black-holed.
- * Subject and intro make it crystal clear this came in via framers.app
- * and didn't get fanned out to the roster.
+ * Forward an email from a non-roster sender to admin + co-captains so
+ * legitimate inbound from outsiders ("hey, can I join the team?") isn't
+ * black-holed. Subject and intro make it crystal clear this came in via
+ * framers.app and didn't get fanned out to the roster.
  */
 async function forwardToAdmin(
   env: Env,
@@ -293,15 +330,22 @@ async function forwardToAdmin(
     senderName: string;
     subject: string;
     html: string;
+    /** All addresses to copy on the forward (admin + co-captains). */
+    recipients: string[];
   },
 ): Promise<void> {
   if (!env.RESEND_API_KEY) {
     console.log("[EMAIL-WORKER] No RESEND_API_KEY, skipping admin forward");
     return;
   }
+  if (args.recipients.length === 0) {
+    console.log("[EMAIL-WORKER] No admin recipients configured, skipping forward");
+    return;
+  }
   const noticeBanner = `<div style="margin: 0 0 16px 0; padding: 12px 14px; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; color: #78350f;">
     <p style="margin: 0 0 6px 0; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">framers.app — non-roster email</p>
-    <p style="margin: 0; line-height: 1.55;"><strong>${escapeHtml(args.senderName)}</strong> &lt;${escapeHtml(args.senderAddress)}&gt; emailed <strong>${escapeHtml(args.listAddress)}</strong> but is not on the active roster. The message was <strong>not</strong> fanned out to the team. Could be someone wanting to join, a misdirected reply, or spam. Reply directly to the sender if it&rsquo;s legit.</p>
+    <p style="margin: 0 0 6px 0; line-height: 1.55;"><strong>${escapeHtml(args.senderName)}</strong> &lt;${escapeHtml(args.senderAddress)}&gt; emailed <strong>${escapeHtml(args.listAddress)}</strong> but is not on the active roster. The message was <strong>not</strong> fanned out to the team. Could be someone wanting to join, a misdirected reply, or spam.</p>
+    <p style="margin: 0; line-height: 1.55; color: #92400e;">Captains in the loop: <strong>${escapeHtml(args.recipients.join(", "))}</strong>. Hit Reply to talk directly to the sender; this notice is sent to all captains so coordinate before responding.</p>
   </div>`;
   try {
     await fetch("https://api.resend.com/emails", {
@@ -312,7 +356,7 @@ async function forwardToAdmin(
       },
       body: JSON.stringify({
         from: "Framers Mail Router <captain@framers.app>",
-        to: ADMIN_FORWARD,
+        to: args.recipients,
         subject: `[framers.app non-roster → ${args.listName}@] ${args.subject}`,
         html: noticeBanner + args.html,
         reply_to: args.senderAddress,
