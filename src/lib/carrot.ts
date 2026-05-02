@@ -1,18 +1,19 @@
 /**
  * USTA forfeited-line behavior (verified 2026-05-02 against `usta-sync.ts` + prod D1):
- * when *we* forfeit a line, our player IDs are NEVER written to `league_match_results`.
- * Singles forfeits write no row at all — the regex at usta-sync.ts:418 needs both
- * `homeName` and `visitorName` player links. Doubles forfeits write a row with
- * `player1_id = player2_id = NULL` via the `dDefaultRegex` fallback at
- * usta-sync.ts:452 (player IDs come from `resolvePlayer(ourName)`, and our names
- * aren't in the USTA HTML when we forfeited). Examples in prod: `hist-2025-10`
- * (S1+D3 with null IDs), `lm-sf26-08` (only 3 of 5 lines recorded).
+ * when *we* forfeit a line, our player IDs are NEVER in `league_match_results`.
+ * Singles: no row is written — the regex at usta-sync.ts:418 needs both home and
+ * visitor player links. Doubles: the `dDefaultRegex` fallback at usta-sync.ts:452
+ * blindly captures the 2 names in the row (the opponent's pair, since we fielded
+ * nobody) and runs them through `resolvePlayer` at line 462, which only matches our
+ * `PLAYER_NAME_MAP` — so both resolve to `null` and the row stores
+ * `player1_id = player2_id = NULL`. Prod: `hist-2025-10` (S1+D3 null IDs),
+ * `lm-sf26-08` (3 of 5 lines recorded).
  *
- * Implication for `countFollowThrough` below: spec case (b) — "row written with our
- * player IDs populated and won=0" — does NOT occur, so the join on
- * `player_id IN (player1_id, player2_id)` cannot false-positive on a line we
- * conceded. We therefore do NOT need an extra `our_score='0' AND opp_score!='0'`
- * exclusion; the `is_default_win = 0` filter from the spec is sufficient.
+ * Implication for `countFollowThrough` below: spec case (b) — "row with our player
+ * IDs populated and won=0" — does NOT occur, so the join on
+ * `player_id IN (player1_id, player2_id)` cannot false-positive on a conceded line.
+ * No extra `our_score='0' AND opp_score!='0'` exclusion needed; the spec's
+ * `is_default_win = 0` filter is sufficient.
  *
  * Spec: docs/superpowers/specs/2026-05-02-team-showup-model-design.md (§ Risks).
  */
